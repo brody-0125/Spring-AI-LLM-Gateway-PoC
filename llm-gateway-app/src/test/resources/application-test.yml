@@ -1,0 +1,21 @@
+spring:
+  flyway:
+    enabled: false
+
+gateway:
+  security:
+    enabled: false
+  rate-limit:
+    enabled: false
+  guardrails:
+    enabled: false
+  resilience:
+    circuit-breaker:
+      enabled: false
+  providers:
+    openai:
+      api-key: ""
+    openrouter:
+      api-key: ""
+    bedrock:
+      enabled: false

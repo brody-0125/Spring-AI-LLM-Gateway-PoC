@@ -1,0 +1,89 @@
+spring:
+  application:
+    name: spring-ai-llm-gateway
+  datasource:
+    url: ${POSTGRES_JDBC_URL:jdbc:postgresql://localhost:5432/llm_gateway}
+    username: ${POSTGRES_USERNAME:llm_gateway}
+    password: ${POSTGRES_PASSWORD:llm_gateway}
+    hikari:
+      maximum-pool-size: ${POSTGRES_POOL_MAX_SIZE:20}
+      minimum-idle: ${POSTGRES_POOL_MIN_IDLE:2}
+      connection-timeout: ${POSTGRES_POOL_CONNECTION_TIMEOUT_MILLIS:5000}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+  flyway:
+    enabled: true
+  threads:
+    virtual:
+      enabled: true
+  main:
+    keep-alive: true
+  mvc:
+    async:
+      request-timeout: ${GATEWAY_REQUEST_TIMEOUT_MILLIS:60000}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+gateway:
+  request:
+    timeout: ${GATEWAY_REQUEST_TIMEOUT:60s}
+  security:
+    enabled: ${GATEWAY_SECURITY_ENABLED:true}
+    # Comma-separated: api-key=caller:tenant[:admin]. Secrets should come from a secret manager.
+    clients: ${GATEWAY_CLIENTS:}
+  rate-limit:
+    enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
+    requests-per-minute: ${GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE:120}
+    burst: ${GATEWAY_RATE_LIMIT_BURST:20}
+    key-prefix: ${GATEWAY_RATE_LIMIT_KEY_PREFIX:llm-gateway:rate-limit}
+    state-ttl: ${GATEWAY_RATE_LIMIT_STATE_TTL:2m}
+  guardrails:
+    enabled: ${GATEWAY_GUARDRAILS_ENABLED:true}
+    max-input-characters: ${GATEWAY_GUARDRAIL_MAX_INPUT_CHARACTERS:100000}
+    blocked-phrases: ${GATEWAY_GUARDRAIL_BLOCKED_PHRASES:}
+  resilience:
+    circuit-breaker:
+      enabled: ${GATEWAY_CIRCUIT_BREAKER_ENABLED:true}
+      failure-threshold: ${GATEWAY_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
+      open-duration-seconds: ${GATEWAY_CIRCUIT_BREAKER_OPEN_DURATION_SECONDS:10}
+      key-prefix: ${GATEWAY_CIRCUIT_BREAKER_KEY_PREFIX:llm-gateway:circuit}
+      state-ttl: ${GATEWAY_CIRCUIT_BREAKER_STATE_TTL:5m}
+  providers:
+    openai:
+      enabled: ${OPENAI_ENABLED:true}
+      api-key: ${OPENAI_API_KEY:}
+      model: ${OPENAI_MODEL:gpt-4o-mini}
+      model-group: ${OPENAI_MODEL_GROUP:default}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      timeout: ${OPENAI_TIMEOUT:60s}
+      max-retries: ${OPENAI_MAX_RETRIES:0}
+    openrouter:
+      enabled: ${OPENROUTER_ENABLED:true}
+      api-key: ${OPENROUTER_API_KEY:}
+      model: ${OPENROUTER_MODEL:openai/gpt-4o-mini}
+      model-group: ${OPENROUTER_MODEL_GROUP:default}
+      base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
+      timeout: ${OPENROUTER_TIMEOUT:60s}
+      max-retries: ${OPENROUTER_MAX_RETRIES:0}
+    bedrock:
+      enabled: ${GATEWAY_BEDROCK_ENABLED:false}
+      model: ${BEDROCK_MODEL:amazon.nova-micro-v1:0}
+      model-group: ${BEDROCK_MODEL_GROUP:default}
+      region: ${AWS_REGION:us-east-1}
+      timeout: ${BEDROCK_TIMEOUT:60s}
+      connection-timeout: ${BEDROCK_CONNECTION_TIMEOUT:5s}
+      read-timeout: ${BEDROCK_READ_TIMEOUT:60s}
+      connection-acquisition-timeout: ${BEDROCK_CONNECTION_ACQUISITION_TIMEOUT:5s}

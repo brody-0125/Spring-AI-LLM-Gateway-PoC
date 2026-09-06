@@ -1,0 +1,20 @@
+# Gradle
+.gradle/
+**/build/
+
+# Kotlin / IntelliJ
+.kotlin/
+.idea/
+*.iml
+/out/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
