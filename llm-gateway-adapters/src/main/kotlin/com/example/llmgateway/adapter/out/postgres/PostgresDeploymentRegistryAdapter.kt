@@ -80,8 +80,9 @@ class PostgresDeploymentRegistryAdapter(
             """
             INSERT INTO llm_gateway_deployment (
                 id, vendor, dialect, model_group, model, enabled, weight,
-                supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd,
+                cache_read_input_cost_per_1k_usd, cache_write_input_cost_per_1k_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 vendor = EXCLUDED.vendor,
                 dialect = EXCLUDED.dialect,
@@ -90,6 +91,8 @@ class PostgresDeploymentRegistryAdapter(
                 supports_streaming = EXCLUDED.supports_streaming,
                 input_cost_per_1k_usd = EXCLUDED.input_cost_per_1k_usd,
                 output_cost_per_1k_usd = EXCLUDED.output_cost_per_1k_usd,
+                cache_read_input_cost_per_1k_usd = EXCLUDED.cache_read_input_cost_per_1k_usd,
+                cache_write_input_cost_per_1k_usd = EXCLUDED.cache_write_input_cost_per_1k_usd,
                 updated_at = CURRENT_TIMESTAMP
             """.trimIndent(),
             deployment.id.value,
@@ -102,6 +105,8 @@ class PostgresDeploymentRegistryAdapter(
             deployment.supportsStreaming,
             deployment.inputCostPer1kUsd,
             deployment.outputCostPer1kUsd,
+            deployment.cacheReadInputCostPer1kUsd,
+            deployment.cacheWriteInputCostPer1kUsd,
         )
     }
 
@@ -144,7 +149,8 @@ class PostgresDeploymentRegistryAdapter(
         val deployments = jdbcTemplate.query(
             """
             SELECT id, vendor, dialect, model_group, model, enabled, weight,
-                   supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd
+                   supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd,
+                   cache_read_input_cost_per_1k_usd, cache_write_input_cost_per_1k_usd
             FROM llm_gateway_deployment
             ORDER BY id
             """.trimIndent(),
@@ -160,6 +166,8 @@ class PostgresDeploymentRegistryAdapter(
                 supportsStreaming = resultSet.getBoolean("supports_streaming"),
                 inputCostPer1kUsd = resultSet.getBigDecimal("input_cost_per_1k_usd"),
                 outputCostPer1kUsd = resultSet.getBigDecimal("output_cost_per_1k_usd"),
+                cacheReadInputCostPer1kUsd = resultSet.getBigDecimal("cache_read_input_cost_per_1k_usd"),
+                cacheWriteInputCostPer1kUsd = resultSet.getBigDecimal("cache_write_input_cost_per_1k_usd"),
             )
         }
         return RoutingSnapshot(deployments, version)

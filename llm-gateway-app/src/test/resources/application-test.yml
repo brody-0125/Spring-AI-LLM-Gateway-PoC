@@ -1,6 +1,12 @@
 spring:
+  main:
+    web-application-type: servlet
   flyway:
     enabled: false
+
+management:
+  server:
+    port: 0
 
 gateway:
   security:

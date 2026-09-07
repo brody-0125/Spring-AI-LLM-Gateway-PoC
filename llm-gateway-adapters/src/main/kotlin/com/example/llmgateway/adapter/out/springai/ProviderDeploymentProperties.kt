@@ -15,6 +15,8 @@ class ProviderDeploymentProperties {
     var supportsStreaming: Boolean = true
     var inputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
     var outputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var cacheReadInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var cacheWriteInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
     var timeout: Duration? = null
     var connectionTimeout: Duration? = null
     var readTimeout: Duration? = null

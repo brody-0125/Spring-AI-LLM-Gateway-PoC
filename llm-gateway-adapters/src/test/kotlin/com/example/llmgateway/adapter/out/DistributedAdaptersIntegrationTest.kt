@@ -1,17 +1,24 @@
 package com.example.llmgateway.adapter.out
 
+import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
+import com.example.llmgateway.adapter.out.postgres.PostgresPricingCatalogAdapter
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
 import com.example.llmgateway.core.primitive.DeploymentId
+import com.example.llmgateway.core.primitive.AttemptId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.RequestId
 import com.example.llmgateway.core.primitive.Vendor
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.DeploymentOverride
+import com.example.llmgateway.domain.model.AttemptContext
+import com.example.llmgateway.domain.model.AttemptOutcome
+import com.example.llmgateway.domain.model.Cost
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.model.Usage
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -23,6 +30,9 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import java.time.Duration
+import java.time.Clock
+import java.time.Instant
+import java.math.BigDecimal
 import java.util.concurrent.Executors
 
 class DistributedAdaptersIntegrationTest : FunSpec() {
@@ -148,6 +158,74 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 executor.close()
                 second.snapshot().version shouldBe 4L
             }
+
+        test("PostgreSQL accounting is idempotent and keeps unknown cost state")
+            .config(enabled = enabled) {
+                val jdbc = postgresJdbcTemplate()
+                createSchema(jdbc)
+                val transactionManager = DataSourceTransactionManager(jdbc.dataSource!!)
+                val accounting = PostgresAttemptAccountingAdapter(
+                    jdbcTemplate = jdbc,
+                    transactionTemplate = org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                )
+                val context = AttemptContext(
+                    requestId = RequestId("accounting-request"),
+                    attemptId = AttemptId("accounting-attempt"),
+                    sequence = 1,
+                    deployment = deployment,
+                    caller = "bff",
+                    tenant = "tenant-a",
+                    traceId = "trace-accounting",
+                )
+                val outcome = AttemptOutcome.Success(
+                    usage = Usage(inputTokens = 12, outputTokens = 8),
+                    cost = Cost(status = com.example.llmgateway.domain.model.CostStatus.UNKNOWN),
+                )
+
+                accounting.record(context, outcome)
+                accounting.record(context, outcome)
+
+                jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM llm_gateway_attempt_usage WHERE request_id = ? AND attempt_id = ?",
+                    Long::class.java,
+                    "accounting-request",
+                    "accounting-attempt",
+                ) shouldBe 1L
+                jdbc.queryForObject(
+                    "SELECT cost_status FROM llm_gateway_attempt_usage WHERE request_id = ? AND attempt_id = ?",
+                    String::class.java,
+                    "accounting-request",
+                    "accounting-attempt",
+                ) shouldBe "UNKNOWN"
+            }
+
+        test("PostgreSQL pricing catalog returns a versioned token price")
+            .config(enabled = enabled) {
+                val jdbc = postgresJdbcTemplate()
+                createSchema(jdbc)
+                val transactionManager = DataSourceTransactionManager(jdbc.dataSource!!)
+                val pricedDeployment = deployment.copy(
+                    inputCostPer1kUsd = BigDecimal("0.001"),
+                    outputCostPer1kUsd = BigDecimal("0.002"),
+                    cacheReadInputCostPer1kUsd = BigDecimal("0.0002"),
+                    cacheWriteInputCostPer1kUsd = BigDecimal("0.0005"),
+                )
+                val catalog = PostgresPricingCatalogAdapter(
+                    jdbcTemplate = jdbc,
+                    transactionTemplate = org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                    configuredDeployments = listOf(pricedDeployment),
+                    clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC),
+                )
+
+                catalog.initialize()
+                val snapshot = catalog.resolve(pricedDeployment, Instant.parse("2026-01-02T00:00:00Z"))
+
+                snapshot.version.startsWith("config-") shouldBe true
+                snapshot.inputCostPerTokenUsd shouldBe BigDecimal("0.000001000000000000")
+                snapshot.outputCostPerTokenUsd shouldBe BigDecimal("0.000002000000000000")
+                snapshot.cacheReadInputCostPerTokenUsd shouldBe BigDecimal("0.000000200000000000")
+                snapshot.cacheWriteInputCostPerTokenUsd shouldBe BigDecimal("0.000000500000000000")
+            }
     }
 
     private fun redisTemplate(): StringRedisTemplate {
@@ -167,6 +245,15 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
     private fun createSchema(jdbc: JdbcTemplate) {
         jdbc.execute(
             """
+            DROP TABLE IF EXISTS llm_gateway_attempt_usage,
+                llm_gateway_deployment_pricing,
+                llm_gateway_pricing_version,
+                llm_gateway_routing_version,
+                llm_gateway_deployment CASCADE
+            """.trimIndent(),
+        )
+        jdbc.execute(
+            """
             CREATE TABLE llm_gateway_deployment (
                 id VARCHAR(128) PRIMARY KEY,
                 vendor VARCHAR(64) NOT NULL,
@@ -178,6 +265,8 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 supports_streaming BOOLEAN NOT NULL,
                 input_cost_per_1k_usd NUMERIC(18, 8) NOT NULL,
                 output_cost_per_1k_usd NUMERIC(18, 8) NOT NULL,
+                cache_read_input_cost_per_1k_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+                cache_write_input_cost_per_1k_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """.trimIndent(),
@@ -191,6 +280,66 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
             """.trimIndent(),
         )
         jdbc.update("INSERT INTO llm_gateway_routing_version (id, version) VALUES (1, 1)")
+        jdbc.execute(
+            """
+            CREATE TABLE llm_gateway_pricing_version (
+                version VARCHAR(128) PRIMARY KEY,
+                source VARCHAR(128) NOT NULL,
+                effective_from TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """.trimIndent(),
+        )
+        jdbc.execute(
+            """
+            CREATE TABLE llm_gateway_deployment_pricing (
+                deployment_id VARCHAR(128) NOT NULL,
+                pricing_version VARCHAR(128) NOT NULL,
+                input_cost_per_token_usd NUMERIC(24, 18),
+                output_cost_per_token_usd NUMERIC(24, 18),
+                cache_read_input_cost_per_token_usd NUMERIC(24, 18),
+                cache_write_input_cost_per_token_usd NUMERIC(24, 18),
+                PRIMARY KEY (deployment_id, pricing_version)
+            )
+            """.trimIndent(),
+        )
+        jdbc.execute(
+            """
+            CREATE TABLE llm_gateway_attempt_usage (
+                request_id VARCHAR(128) NOT NULL,
+                attempt_id VARCHAR(128) NOT NULL,
+                trace_id VARCHAR(128),
+                attempt_sequence INTEGER NOT NULL,
+                caller VARCHAR(128) NOT NULL,
+                tenant VARCHAR(128) NOT NULL,
+                vendor VARCHAR(64) NOT NULL,
+                deployment_id VARCHAR(128) NOT NULL,
+                model_group VARCHAR(128) NOT NULL,
+                provider_model VARCHAR(256) NOT NULL,
+                streaming BOOLEAN NOT NULL,
+                started_at TIMESTAMPTZ NOT NULL,
+                completed_at TIMESTAMPTZ NOT NULL,
+                outcome VARCHAR(64) NOT NULL,
+                failure_class VARCHAR(64),
+                usage_available BOOLEAN NOT NULL,
+                input_tokens BIGINT NOT NULL,
+                output_tokens BIGINT NOT NULL,
+                cache_read_input_tokens BIGINT NOT NULL,
+                cache_write_input_tokens BIGINT NOT NULL,
+                reasoning_output_tokens BIGINT NOT NULL,
+                input_cost_usd NUMERIC(24, 12) NOT NULL,
+                output_cost_usd NUMERIC(24, 12) NOT NULL,
+                cache_read_cost_usd NUMERIC(24, 12) NOT NULL,
+                cache_write_cost_usd NUMERIC(24, 12) NOT NULL,
+                total_cost_usd NUMERIC(24, 12) NOT NULL,
+                cost_status VARCHAR(32) NOT NULL,
+                pricing_version VARCHAR(128),
+                cost_warnings VARCHAR(512),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (request_id, attempt_id)
+            )
+            """.trimIndent(),
+        )
     }
 
     private val deployment = Deployment(

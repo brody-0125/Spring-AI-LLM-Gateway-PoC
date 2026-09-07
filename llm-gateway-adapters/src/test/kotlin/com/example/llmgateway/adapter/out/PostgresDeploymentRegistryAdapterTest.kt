@@ -37,6 +37,8 @@ class PostgresDeploymentRegistryAdapterTest : FunSpec() {
                     supports_streaming BOOLEAN NOT NULL,
                     input_cost_per_1k_usd DECIMAL(18, 8) NOT NULL,
                     output_cost_per_1k_usd DECIMAL(18, 8) NOT NULL,
+                    cache_read_input_cost_per_1k_usd DECIMAL(18, 8) NOT NULL DEFAULT 0,
+                    cache_write_input_cost_per_1k_usd DECIMAL(18, 8) NOT NULL DEFAULT 0,
                     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """.trimIndent(),

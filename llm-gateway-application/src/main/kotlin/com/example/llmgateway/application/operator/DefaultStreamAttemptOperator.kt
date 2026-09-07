@@ -2,8 +2,10 @@ package com.example.llmgateway.application.operator
 
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
+import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
+import com.example.llmgateway.application.port.out.NoOpAttemptAccountingPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.core.primitive.AttemptId
 import com.example.llmgateway.domain.model.AttemptContext
@@ -24,6 +26,8 @@ class DefaultStreamAttemptOperator(
     private val deadlineOperator: VirtualThreadDeadlineOperator,
     private val circuitBreaker: CircuitBreakerPort,
     private val failurePolicy: FailurePolicy,
+    private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
+    private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
 ) : StreamAttemptOperator {
 
     override fun execute(
@@ -36,8 +40,9 @@ class DefaultStreamAttemptOperator(
         val attempt = attemptContext(context, deployment, attemptSequence)
         attemptObserver.onStart(attempt)
         var emitted = false
-        var usage = Usage()
+        var usage = Usage(available = false)
         var finishReason = "stop"
+        var firstTokenRecorded = false
 
         try {
             val providerChunks = deadlineOperator.execute(context.deadline) {
@@ -47,7 +52,11 @@ class DefaultStreamAttemptOperator(
             while (deadlineOperator.execute(context.deadline) { iterator.hasNext() }) {
                 val chunk = deadlineOperator.execute(context.deadline) { iterator.next() }
                 emitted = true
-                chunk.usage?.let { usage = it }
+                if (chunk.text.isNotEmpty() && !firstTokenRecorded) {
+                    firstTokenRecorded = true
+                    attemptObserver.onFirstToken(attempt)
+                }
+                chunk.usage?.let { usage = usage.mergeCumulative(it) }
                 chunk.finishReason?.let { finishReason = it }
                 yield(
                     GatewayEvent.Delta(
@@ -59,7 +68,11 @@ class DefaultStreamAttemptOperator(
                 )
             }
             circuitBreaker.onSuccess(deployment)
-            attemptObserver.onStop(attempt, AttemptOutcome.Success(usage, deployment.costOf(usage)))
+            val outcome = AttemptOutcome.Success(
+                usage,
+                costCalculationOperator.calculate(deployment, usage, Instant.now()),
+            )
+            record(outcome, attempt)
             yield(
                 GatewayEvent.Complete(
                     id = responseId,
@@ -70,17 +83,35 @@ class DefaultStreamAttemptOperator(
                 ),
             )
         } catch (error: InterruptedException) {
-            attemptObserver.onStop(attempt, AttemptOutcome.Cancelled)
+            record(
+                AttemptOutcome.CancelledWithUsage(
+                    usage = usage,
+                    cost = costCalculationOperator.calculate(deployment, usage, Instant.now()),
+                ),
+                attempt,
+            )
             Thread.currentThread().interrupt()
+            throw error
+        } catch (error: AttemptAccountingException) {
             throw error
         } catch (error: Exception) {
             val failure = failureClassifier.classify(error)
             if (failurePolicy.circuitBreakerEligible(failure)) {
                 circuitBreaker.onFailure(deployment, failure)
             }
-            attemptObserver.onStop(attempt, AttemptOutcome.Failure(failure))
+            val cost = costCalculationOperator.calculate(deployment, usage, Instant.now())
+            record(AttemptOutcome.Failure(failure, usage, cost), attempt)
             throw AttemptFailureException(failure, emitted, error)
         }
+    }
+
+    private fun record(outcome: AttemptOutcome, context: AttemptContext) {
+        try {
+            attemptAccounting.record(context, outcome)
+        } catch (error: Exception) {
+            throw AttemptAccountingException(error)
+        }
+        attemptObserver.onStop(context, outcome)
     }
 
     private fun attemptContext(
@@ -98,4 +129,5 @@ class DefaultStreamAttemptOperator(
         streaming = true,
         startedAt = Instant.now(),
     )
+
 }

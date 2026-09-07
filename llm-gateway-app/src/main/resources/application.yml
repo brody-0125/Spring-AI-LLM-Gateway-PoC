@@ -32,10 +32,21 @@ server:
   port: ${SERVER_PORT:8080}
 
 management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:8081}
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:}
 
 gateway:
   request:
@@ -70,6 +81,10 @@ gateway:
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
       timeout: ${OPENAI_TIMEOUT:60s}
       max-retries: ${OPENAI_MAX_RETRIES:0}
+      input-cost-per-1k-usd: ${OPENAI_INPUT_COST_PER_1K_USD:0}
+      output-cost-per-1k-usd: ${OPENAI_OUTPUT_COST_PER_1K_USD:0}
+      cache-read-input-cost-per-1k-usd: ${OPENAI_CACHE_READ_INPUT_COST_PER_1K_USD:0}
+      cache-write-input-cost-per-1k-usd: ${OPENAI_CACHE_WRITE_INPUT_COST_PER_1K_USD:0}
     openrouter:
       enabled: ${OPENROUTER_ENABLED:true}
       api-key: ${OPENROUTER_API_KEY:}
@@ -78,6 +93,10 @@ gateway:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       timeout: ${OPENROUTER_TIMEOUT:60s}
       max-retries: ${OPENROUTER_MAX_RETRIES:0}
+      input-cost-per-1k-usd: ${OPENROUTER_INPUT_COST_PER_1K_USD:0}
+      output-cost-per-1k-usd: ${OPENROUTER_OUTPUT_COST_PER_1K_USD:0}
+      cache-read-input-cost-per-1k-usd: ${OPENROUTER_CACHE_READ_INPUT_COST_PER_1K_USD:0}
+      cache-write-input-cost-per-1k-usd: ${OPENROUTER_CACHE_WRITE_INPUT_COST_PER_1K_USD:0}
     bedrock:
       enabled: ${GATEWAY_BEDROCK_ENABLED:false}
       model: ${BEDROCK_MODEL:amazon.nova-micro-v1:0}
@@ -87,3 +106,7 @@ gateway:
       connection-timeout: ${BEDROCK_CONNECTION_TIMEOUT:5s}
       read-timeout: ${BEDROCK_READ_TIMEOUT:60s}
       connection-acquisition-timeout: ${BEDROCK_CONNECTION_ACQUISITION_TIMEOUT:5s}
+      input-cost-per-1k-usd: ${BEDROCK_INPUT_COST_PER_1K_USD:0}
+      output-cost-per-1k-usd: ${BEDROCK_OUTPUT_COST_PER_1K_USD:0}
+      cache-read-input-cost-per-1k-usd: ${BEDROCK_CACHE_READ_INPUT_COST_PER_1K_USD:0}
+      cache-write-input-cost-per-1k-usd: ${BEDROCK_CACHE_WRITE_INPUT_COST_PER_1K_USD:0}

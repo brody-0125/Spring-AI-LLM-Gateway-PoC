@@ -2,16 +2,24 @@ package com.example.llmgateway.adapter.out.springai
 
 import com.example.llmgateway.adapter.out.admission.ConfigurableGuardrailAdapter
 import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserver
+import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
+import com.example.llmgateway.adapter.out.postgres.PostgresPricingCatalogAdapter
+import com.example.llmgateway.adapter.out.pricing.ConfiguredPricingCatalogAdapter
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
 import com.example.llmgateway.adapter.out.security.StaticApiKeyAuthenticationAdapter
+import com.example.llmgateway.application.operator.CostCalculationOperator
+import com.example.llmgateway.application.operator.DefaultCostCalculationOperator
+import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
 import com.example.llmgateway.application.port.out.GuardrailPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
+import com.example.llmgateway.application.port.out.PricingCatalogPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
+import com.example.llmgateway.application.port.out.NoOpAttemptAccountingPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
@@ -29,6 +37,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.core.env.Environment
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.ai.bedrock.converse.BedrockChatOptions
 import org.springframework.ai.bedrock.converse.BedrockProxyChatModel
 import org.springframework.ai.chat.model.ChatModel
@@ -90,6 +99,44 @@ class SpringAiVendorConfiguration {
         transactionManager = transactionManager,
         configuredDeployments = providers.deployments,
     ).also { it.initialize() }
+
+    @Bean
+    @Profile("!test")
+    @DependsOn("flywayInitializer")
+    fun pricingCatalog(
+        providers: ConfiguredProviders,
+        jdbcTemplate: JdbcTemplate,
+        transactionManager: PlatformTransactionManager,
+    ): PostgresPricingCatalogAdapter = PostgresPricingCatalogAdapter(
+        jdbcTemplate = jdbcTemplate,
+        transactionTemplate = TransactionTemplate(transactionManager),
+        configuredDeployments = providers.deployments,
+    ).also { it.initialize() }
+
+    @Bean
+    @Profile("test")
+    fun pricingCatalogForTest(): PricingCatalogPort = ConfiguredPricingCatalogAdapter()
+
+    @Bean
+    fun costCalculationOperator(pricingCatalog: PricingCatalogPort): CostCalculationOperator =
+        DefaultCostCalculationOperator(pricingCatalog)
+
+    @Bean
+    @Profile("!test")
+    @DependsOn("flywayInitializer")
+    fun attemptAccountingPort(
+        jdbcTemplate: JdbcTemplate,
+        transactionManager: PlatformTransactionManager,
+        meterRegistry: MeterRegistry,
+    ): AttemptAccountingPort = PostgresAttemptAccountingAdapter(
+        jdbcTemplate = jdbcTemplate,
+        transactionTemplate = TransactionTemplate(transactionManager),
+        meterRegistry = meterRegistry,
+    )
+
+    @Bean
+    @Profile("test")
+    fun attemptAccountingPortForTest(): AttemptAccountingPort = NoOpAttemptAccountingPort
 
     @Bean
     fun providerInvoker(providers: ConfiguredProviders): ProviderInvokerPort =
@@ -241,6 +288,10 @@ class SpringAiVendorConfiguration {
             id = defaultId
             model = properties.model.ifBlank { defaultModel }
             modelGroup = properties.modelGroup
+            inputCostPer1kUsd = properties.inputCostPer1kUsd
+            outputCostPer1kUsd = properties.outputCostPer1kUsd
+            cacheReadInputCostPer1kUsd = properties.cacheReadInputCostPer1kUsd
+            cacheWriteInputCostPer1kUsd = properties.cacheWriteInputCostPer1kUsd
         })
     }
 
@@ -261,6 +312,8 @@ class SpringAiVendorConfiguration {
         supportsStreaming = supportsStreaming,
         inputCostPer1kUsd = inputCostPer1kUsd,
         outputCostPer1kUsd = outputCostPer1kUsd,
+        cacheReadInputCostPer1kUsd = cacheReadInputCostPer1kUsd,
+        cacheWriteInputCostPer1kUsd = cacheWriteInputCostPer1kUsd,
     )
 
     private fun parseClients(raw: String): Map<String, GatewayPrincipal> = raw

@@ -4,6 +4,7 @@ import com.example.llmgateway.application.port.`in`.ChatCompletionCommandIn
 import com.example.llmgateway.application.port.`in`.ChatCompletionQueryIn
 import com.example.llmgateway.application.port.`in`.RoutingCommandIn
 import com.example.llmgateway.application.port.`in`.RoutingQueryIn
+import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
@@ -17,6 +18,7 @@ import com.example.llmgateway.application.operation.DefaultCompleteChatOperation
 import com.example.llmgateway.application.operation.DefaultStreamChatOperation
 import com.example.llmgateway.application.operation.StreamChatOperation
 import com.example.llmgateway.application.operator.CompleteAttemptOperator
+import com.example.llmgateway.application.operator.CostCalculationOperator
 import com.example.llmgateway.application.operator.DefaultCompleteAttemptOperator
 import com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator
 import com.example.llmgateway.application.operator.DefaultStreamAttemptOperator
@@ -75,6 +77,8 @@ class GatewayServiceConfiguration {
         attemptObserver: AttemptObserverPort,
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
+        costCalculationOperator: CostCalculationOperator,
+        attemptAccounting: AttemptAccountingPort,
     ): CompleteAttemptOperator = DefaultCompleteAttemptOperator(
         providerInvoker = providerInvoker,
         failureClassifier = failureClassifier,
@@ -82,6 +86,8 @@ class GatewayServiceConfiguration {
         deadlineOperator = deadlineOperator,
         circuitBreaker = circuitBreaker,
         failurePolicy = failurePolicy,
+        costCalculationOperator = costCalculationOperator,
+        attemptAccounting = attemptAccounting,
     )
 
     @Bean
@@ -92,6 +98,8 @@ class GatewayServiceConfiguration {
         attemptObserver: AttemptObserverPort,
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
+        costCalculationOperator: CostCalculationOperator,
+        attemptAccounting: AttemptAccountingPort,
     ): StreamAttemptOperator = DefaultStreamAttemptOperator(
         providerInvoker = providerInvoker,
         failureClassifier = failureClassifier,
@@ -99,6 +107,8 @@ class GatewayServiceConfiguration {
         deadlineOperator = deadlineOperator,
         circuitBreaker = circuitBreaker,
         failurePolicy = failurePolicy,
+        costCalculationOperator = costCalculationOperator,
+        attemptAccounting = attemptAccounting,
     )
 
     @Bean

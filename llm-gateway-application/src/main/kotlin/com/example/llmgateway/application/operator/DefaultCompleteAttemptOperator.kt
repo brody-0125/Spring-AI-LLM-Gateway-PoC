@@ -2,8 +2,10 @@ package com.example.llmgateway.application.operator
 
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
+import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
+import com.example.llmgateway.application.port.out.NoOpAttemptAccountingPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.core.primitive.AttemptId
 import com.example.llmgateway.domain.model.AttemptContext
@@ -23,6 +25,8 @@ class DefaultCompleteAttemptOperator(
     private val deadlineOperator: VirtualThreadDeadlineOperator,
     private val circuitBreaker: CircuitBreakerPort,
     private val failurePolicy: FailurePolicy,
+    private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
+    private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
 ) : CompleteAttemptOperator {
 
     override fun execute(
@@ -38,20 +42,35 @@ class DefaultCompleteAttemptOperator(
                 providerInvoker.complete(deployment, request)
             }
             circuitBreaker.onSuccess(deployment)
-            attemptObserver.onStop(attempt, AttemptOutcome.Success(response.usage, deployment.costOf(response.usage)))
+            val outcome = AttemptOutcome.Success(
+                response.usage,
+                costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
+            )
+            record(outcome, attempt)
             response
         } catch (error: InterruptedException) {
-            attemptObserver.onStop(attempt, AttemptOutcome.Cancelled)
+            record(AttemptOutcome.Cancelled, attempt)
             Thread.currentThread().interrupt()
+            throw error
+        } catch (error: AttemptAccountingException) {
             throw error
         } catch (error: Exception) {
             val failure = failureClassifier.classify(error)
             if (failurePolicy.circuitBreakerEligible(failure)) {
                 circuitBreaker.onFailure(deployment, failure)
             }
-            attemptObserver.onStop(attempt, AttemptOutcome.Failure(failure))
+            record(AttemptOutcome.Failure(failure), attempt)
             throw AttemptFailureException(failure, cause = error)
         }
+    }
+
+    private fun record(outcome: AttemptOutcome, context: AttemptContext) {
+        try {
+            attemptAccounting.record(context, outcome)
+        } catch (error: Exception) {
+            throw AttemptAccountingException(error)
+        }
+        attemptObserver.onStop(context, outcome)
     }
 
     private fun attemptContext(

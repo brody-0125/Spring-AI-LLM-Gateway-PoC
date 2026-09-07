@@ -1,5 +1,6 @@
 package com.example.llmgateway.adapter.out.springai
 
+import java.math.BigDecimal
 import java.time.Duration
 
 class ProviderProperties {
@@ -14,5 +15,9 @@ class ProviderProperties {
     var readTimeout: Duration = Duration.ofSeconds(60)
     var connectionAcquisitionTimeout: Duration = Duration.ofSeconds(5)
     var maxRetries: Int = 0
+    var inputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var outputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var cacheReadInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var cacheWriteInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
     var deployments: List<ProviderDeploymentProperties> = emptyList()
 }

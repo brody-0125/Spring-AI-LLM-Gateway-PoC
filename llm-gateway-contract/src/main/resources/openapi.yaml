@@ -227,9 +227,9 @@ components:
       additionalProperties: false
       required: [prompt_tokens, completion_tokens, total_tokens]
       properties:
-        prompt_tokens: { type: integer, minimum: 0 }
-        completion_tokens: { type: integer, minimum: 0 }
-        total_tokens: { type: integer, minimum: 0 }
+        prompt_tokens: { type: integer, format: int64, minimum: 0 }
+        completion_tokens: { type: integer, format: int64, minimum: 0 }
+        total_tokens: { type: integer, format: int64, minimum: 0 }
     ErrorResponse:
       type: object
       additionalProperties: false

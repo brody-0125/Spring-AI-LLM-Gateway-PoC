@@ -11,6 +11,7 @@ A Spring MVC LLM gateway built on JDK 21 virtual threads and Spring AI. Clients 
 - Bearer-token client, tenant, and administrator identification
 - Token-bucket rate limiting and configurable input guardrails
 - Request tracing, structured logging, and Micrometer latency, token, failure, fallback, and cost metrics
+- Prometheus metrics at `/actuator/prometheus` and optional OTLP trace export on the internal management port
 - PostgreSQL-backed deployment registry and routing overrides
 - Redis-backed distributed rate-limit and circuit-breaker state
 - OpenAPI 3.0.3 contract at `GET /v3/api-docs.yaml`
@@ -26,6 +27,7 @@ $env:POSTGRES_USERNAME = "llm_gateway"
 $env:POSTGRES_PASSWORD = "<postgres-password>"
 $env:REDIS_HOST = "localhost"
 $env:REDIS_PORT = "6379"
+$env:MANAGEMENT_SERVER_PORT = "8081"
 $env:OPENAI_API_KEY = "<openai-api-key>"
 $env:OPENAI_MODEL = "gpt-4o-mini"
 
@@ -34,13 +36,15 @@ $env:OPENAI_MODEL = "gpt-4o-mini"
 
 Replace all placeholder values. Inject credentials through a secret manager or Kubernetes Secret.
 
+The management server defaults to port `8081`; keep it on an internal network and expose only the endpoints required by the operations platform.
+
 `GATEWAY_CLIENTS` uses the format `api-key=caller:tenant[:admin]`, with comma-separated entries. Client authentication is enabled by default.
 
 Supported provider settings:
 
-- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_MODEL_GROUP`, `OPENAI_BASE_URL`
-- OpenRouter: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_MODEL_GROUP`, `OPENROUTER_BASE_URL`
-- AWS Bedrock: `GATEWAY_BEDROCK_ENABLED`, `BEDROCK_MODEL`, `BEDROCK_MODEL_GROUP`, `AWS_REGION`
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_MODEL_GROUP`, `OPENAI_BASE_URL`, and `OPENAI_*_COST_PER_1K_USD`
+- OpenRouter: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_MODEL_GROUP`, `OPENROUTER_BASE_URL`, and `OPENROUTER_*_COST_PER_1K_USD`
+- AWS Bedrock: `GATEWAY_BEDROCK_ENABLED`, `BEDROCK_MODEL`, `BEDROCK_MODEL_GROUP`, `AWS_REGION`, and `BEDROCK_*_COST_PER_1K_USD`
 
 OpenAI and OpenRouter support provider `TIMEOUT` and `MAX_RETRIES` settings. Bedrock also supports connection, read, and connection-acquisition timeouts. Provider retries default to zero so gateway fallback remains the retry boundary.
 
@@ -63,6 +67,8 @@ gateway:
           weight: 1
           input-cost-per-1k-usd: 0.0004
           output-cost-per-1k-usd: 0.0016
+          cache-read-input-cost-per-1k-usd: 0.0002
+          cache-write-input-cost-per-1k-usd: 0.0005
 ```
 
 The legacy single-deployment fields create one default deployment per provider.
@@ -87,6 +93,8 @@ PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions.
 - `GET /v3/api-docs.yaml`: OpenAPI v3 contract
 
 The source contract is [`llm-gateway-contract/src/main/resources/openapi.yaml`](llm-gateway-contract/src/main/resources/openapi.yaml). It exposes only the common provider-neutral request fields. Message content is currently limited to strings; tool calling, multimodal content, and provider-specific fields are intentionally excluded.
+
+The public contract does not expose provider cost details. Usage and cost accounting are stored internally per provider attempt, with idempotent PostgreSQL writes and versioned pricing snapshots.
 
 Supported request options include `temperature`, `max_tokens`, `max_completion_tokens`, `top_p`, `stop`, and `stream`. `max_tokens` and `max_completion_tokens` are mutually exclusive. Usage is always collected internally for cost tracking.
 
