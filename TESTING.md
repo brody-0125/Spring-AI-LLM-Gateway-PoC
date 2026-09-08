@@ -29,7 +29,7 @@ $env:RUN_TESTCONTAINERS = "true"
 
 ## 테스트 구성
 
-- `llm-gateway-application`: Kotest 단위 테스트. filtering, weighted round-robin, `5xx`/`429` fallback, 인증 오류 no-fallback, stream retry boundary, maximum attempt count, failure classification/policy matrix를 검증한다.
+- `llm-gateway-application`: Kotest 단위 테스트. filtering, weighted round-robin, bounded same-deployment retry, `5xx`/`429` alternative deployment selection, 인증 오류 경계, stream retry boundary, maximum attempt count, connection failure classification/policy matrix를 검증한다.
 - `llm-gateway-app/ChatCompletionRequestMapperTest`: public request의 provider 공통 옵션, stream 플래그, token alias 충돌, 잘못된 role/model/temperature를 검증한다.
 - `llm-gateway-app/GatewayControllerIntegrationTest`: Spring MVC JSON/SSE contract, request ID 생성, null/unknown field 거부, token alias 충돌, error sanitization, logical model/finish reason을 검증한다.
 - `llm-gateway-app/GatewaySecurityIntegrationTest`: client/admin 경계와 내부 routing control plane 접근 제어를 검증한다.
@@ -46,7 +46,7 @@ $env:RUN_TESTCONTAINERS = "true"
 | 영역 | 단위 테스트 | MVC 통합 테스트 | Testcontainers/외부 통합 |
 | --- | --- | --- | --- |
 | 요청 계약·입력 검증 | mapper 옵션/role/model/token 충돌 | JSON 400, unknown field, null content | provider request 전달 |
-| 라우팅·fallback 정책 | 분류기/정책/시도 경계 | fallback error contract | provider fallback, routing registry |
+| 라우팅·대체 배포 선택 정책 | 분류기/정책/시도 경계 | 대체 배포 선택 오류 계약 | provider alternative selection, routing registry |
 | streaming | response/chunk mapper | SSE model/finish reason | provider SSE 전달 |
 | 관측성·비용 | Micrometer metric/cost recording | request ID/header contract | replica 간 상태 검증 |
 | 보안·제어면 | auth/guardrail 경계 | client/admin 접근 제어 | PostgreSQL override persistence |

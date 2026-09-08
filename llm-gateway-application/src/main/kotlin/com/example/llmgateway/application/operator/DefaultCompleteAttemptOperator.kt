@@ -37,10 +37,19 @@ class DefaultCompleteAttemptOperator(
     ): ProviderResponse {
         val attempt = attemptContext(context, deployment, attemptSequence)
         attemptObserver.onStart(attempt)
-        return try {
-            val response = deadlineOperator.execute(context.deadline) {
+        val response = try {
+            deadlineOperator.execute(context.deadline) {
                 providerInvoker.complete(deployment, request)
             }
+        } catch (error: InterruptedException) {
+            record(AttemptOutcome.Cancelled, attempt)
+            Thread.currentThread().interrupt()
+            throw error
+        } catch (error: Exception) {
+            throw providerFailure(error, attempt, deployment)
+        }
+
+        return try {
             circuitBreaker.onSuccess(deployment)
             val outcome = AttemptOutcome.Success(
                 response.usage,
@@ -48,20 +57,22 @@ class DefaultCompleteAttemptOperator(
             )
             record(outcome, attempt)
             response
-        } catch (error: InterruptedException) {
-            record(AttemptOutcome.Cancelled, attempt)
-            Thread.currentThread().interrupt()
-            throw error
         } catch (error: AttemptAccountingException) {
             throw error
-        } catch (error: Exception) {
-            val failure = failureClassifier.classify(error)
-            if (failurePolicy.circuitBreakerEligible(failure)) {
-                circuitBreaker.onFailure(deployment, failure)
-            }
-            record(AttemptOutcome.Failure(failure), attempt)
-            throw AttemptFailureException(failure, cause = error)
         }
+    }
+
+    private fun providerFailure(
+        error: Exception,
+        context: AttemptContext,
+        deployment: Deployment,
+    ): AttemptFailureException {
+        val failure = failureClassifier.classify(error)
+        if (failurePolicy.circuitBreakerEligible(failure)) {
+            circuitBreaker.onFailure(deployment, failure)
+        }
+        record(AttemptOutcome.Failure(failure), context)
+        return AttemptFailureException.from(failure, error)
     }
 
     private fun record(outcome: AttemptOutcome, context: AttemptContext) {

@@ -230,7 +230,7 @@ class SpringAiVendorConfiguration {
                 .baseUrl(definition.baseUrl.ifBlank { properties.baseUrl.ifBlank { defaultBaseUrl } })
                 .model(model)
                 .timeout(definition.timeout ?: properties.timeout)
-                .maxRetries(properties.maxRetries)
+                .maxRetries(0)
                 .build()
             models[id] = OpenAiChatModel.builder()
                 .options(options)

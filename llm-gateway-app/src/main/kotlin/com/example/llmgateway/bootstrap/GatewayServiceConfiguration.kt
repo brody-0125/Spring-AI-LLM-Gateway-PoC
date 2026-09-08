@@ -28,7 +28,7 @@ import com.example.llmgateway.application.operator.VirtualThreadDeadlineOperator
 import com.example.llmgateway.application.policy.DefaultFailureClassifier
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
-import com.example.llmgateway.application.policy.FallbackPolicy
+import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.service.DefaultChatCompletionCommandService
 import com.example.llmgateway.application.service.DefaultChatCompletionQueryService
@@ -37,6 +37,8 @@ import com.example.llmgateway.application.service.DefaultRoutingQueryService
 import com.example.llmgateway.application.service.WeightedRoundRobinRoutePlanner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.beans.factory.annotation.Value
+import java.time.Duration
 
 @Configuration(proxyBeanMethods = false)
 class GatewayServiceConfiguration {
@@ -48,7 +50,23 @@ class GatewayServiceConfiguration {
     fun failurePolicy(): FailurePolicy = FailurePolicy()
 
     @Bean
-    fun fallbackPolicy(failurePolicy: FailurePolicy): FallbackPolicy = FallbackPolicy(failurePolicy)
+    fun attemptPolicy(
+        failurePolicy: FailurePolicy,
+        @Value("\${gateway.resilience.max-total-attempts:3}") maxTotalAttempts: Int,
+        @Value("\${gateway.resilience.max-retries-per-deployment:1}") maxRetriesPerDeployment: Int,
+        @Value("\${gateway.resilience.max-fallbacks:2}") maxFallbacks: Int,
+        @Value("\${gateway.resilience.backoff.initial:100ms}") initialBackoff: Duration,
+        @Value("\${gateway.resilience.backoff.multiplier:2.0}") backoffMultiplier: Double,
+        @Value("\${gateway.resilience.backoff.max:2s}") maxBackoff: Duration,
+    ): AttemptPolicy = AttemptPolicy(
+        failurePolicy = failurePolicy,
+        maxTotalAttempts = maxTotalAttempts,
+        maxRetriesPerDeployment = maxRetriesPerDeployment,
+        maxFallbacks = maxFallbacks,
+        initialBackoff = initialBackoff,
+        backoffMultiplier = backoffMultiplier,
+        maxBackoff = maxBackoff,
+    )
 
     @Bean
     fun gatewayErrorFactory(failurePolicy: FailurePolicy): GatewayErrorFactory = GatewayErrorFactory(failurePolicy)
@@ -115,12 +133,12 @@ class GatewayServiceConfiguration {
     fun completeChatOperation(
         routePlanner: RoutePlannerPort,
         attemptOperator: CompleteAttemptOperator,
-        fallbackPolicy: FallbackPolicy,
+        attemptPolicy: AttemptPolicy,
         gatewayErrorFactory: GatewayErrorFactory,
     ): CompleteChatOperation = DefaultCompleteChatOperation(
         routePlanner = routePlanner,
         attemptOperator = attemptOperator,
-        fallbackPolicy = fallbackPolicy,
+        attemptPolicy = attemptPolicy,
         errorFactory = gatewayErrorFactory,
     )
 
@@ -128,12 +146,12 @@ class GatewayServiceConfiguration {
     fun streamChatOperation(
         routePlanner: RoutePlannerPort,
         attemptOperator: StreamAttemptOperator,
-        fallbackPolicy: FallbackPolicy,
+        attemptPolicy: AttemptPolicy,
         gatewayErrorFactory: GatewayErrorFactory,
     ): StreamChatOperation = DefaultStreamChatOperation(
         routePlanner = routePlanner,
         attemptOperator = attemptOperator,
-        fallbackPolicy = fallbackPolicy,
+        attemptPolicy = attemptPolicy,
         errorFactory = gatewayErrorFactory,
     )
 

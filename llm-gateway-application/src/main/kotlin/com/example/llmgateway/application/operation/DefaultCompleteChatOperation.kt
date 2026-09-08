@@ -2,46 +2,113 @@ package com.example.llmgateway.application.operation
 
 import com.example.llmgateway.application.operator.AttemptFailureException
 import com.example.llmgateway.application.operator.CompleteAttemptOperator
-import com.example.llmgateway.application.policy.FallbackPolicy
+import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.port.out.RoutePlannerPort
+import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.domain.model.CanonicalChatRequest
+import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.GatewayResponse
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.RoutingPlan
-import java.util.UUID
+import com.example.llmgateway.domain.model.FailureClass
+import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.TimeoutException
+import java.util.UUID
 
 class DefaultCompleteChatOperation(
     private val routePlanner: RoutePlannerPort,
     private val attemptOperator: CompleteAttemptOperator,
-    private val fallbackPolicy: FallbackPolicy,
+    private val attemptPolicy: AttemptPolicy,
     private val errorFactory: GatewayErrorFactory,
 ) : CompleteChatOperation {
 
-    override fun execute(request: CanonicalChatRequest, context: RequestContext): GatewayResponse =
-        executeAttempt(routePlanner.plan(request, context), 0, request, context)
+    override fun execute(request: CanonicalChatRequest, context: RequestContext): GatewayResponse {
+        val budget = attemptPolicy.newBudget()
+        var excluded = emptySet<DeploymentId>()
+        var lastFailure: AttemptFailureException? = null
+        var plan = plan(request, context, excluded)
 
-    private fun executeAttempt(
-        plan: RoutingPlan,
-        index: Int,
-        request: CanonicalChatRequest,
-        context: RequestContext,
-    ): GatewayResponse {
-        val deployment = plan.candidates.getOrNull(index)
-            ?: throw errorFactory.noDeployment(context)
+        while (budget.attempts < attemptPolicy.maxTotalAttempts) {
+            if (remaining(context).isZero || remaining(context).isNegative) {
+                throw lastFailure?.let { terminalError(context, it) }
+                    ?: errorFactory.from(context, FailureClass.TRANSIENT, TimeoutException("Gateway deadline exceeded"))
+            }
+            val deployment = plan.candidates.firstOrNull { it.id !in excluded }
+                ?: break
+            var retryIndex = 0
 
-        return try {
-            attemptOperator.execute(request, context, deployment, index + 1)
-                .toGatewayResponse(request)
-        } catch (error: AttemptFailureException) {
-            if (fallbackPolicy.canFallback(plan, index, error.failureClass)) {
-                executeAttempt(plan, index + 1, request, context)
-            } else {
-                throw errorFactory.from(context, error.failureClass, error.cause ?: error)
+            while (budget.startAttempt()) {
+                try {
+                    return attemptOperator.execute(request, context, deployment, budget.attempts)
+                        .toGatewayResponse(request)
+                } catch (error: AttemptFailureException) {
+                    lastFailure = error
+                    val delay = if (
+                        attemptPolicy.canRetrySameDeployment(
+                            failureClass = error.failureClass,
+                            emitted = error.emitted,
+                            requestDisposition = error.requestDisposition,
+                            retryIndex = retryIndex,
+                            budget = budget,
+                        )
+                    ) {
+                        attemptPolicy.delay(error.retryAfter, retryIndex, remaining(context))
+                    } else {
+                        null
+                    }
+                    if (delay != null) {
+                        attemptPolicy.await(delay)
+                        retryIndex += 1
+                        continue
+                    }
+
+                    if (remaining(context).isZero || remaining(context).isNegative) {
+                        throw terminalError(context, error)
+                    }
+
+                    val nextExcluded = excluded + deployment.id
+                    if (
+                        !attemptPolicy.canFallback(error.failureClass, error.emitted, budget) ||
+                        plan.candidates.none { it.id !in nextExcluded } ||
+                        !budget.startFallback()
+                    ) {
+                        throw terminalError(context, error)
+                    }
+                    excluded = nextExcluded
+                    plan = plan(request, context, excluded)
+                    break
+                }
             }
         }
+
+        throw lastFailure?.let { terminalError(context, it) }
+            ?: errorFactory.noDeployment(context)
     }
+
+    private fun plan(
+        request: CanonicalChatRequest,
+        context: RequestContext,
+        excluded: Set<DeploymentId>,
+    ): RoutingPlan = try {
+        routePlanner.plan(request, context, excluded)
+    } catch (error: GatewayException) {
+        throw error
+    } catch (error: Exception) {
+        throw errorFactory.routingUnavailable(context, error)
+    }
+
+    private fun remaining(context: RequestContext): Duration =
+        Duration.between(Instant.now(), context.deadline)
+
+    private fun terminalError(context: RequestContext, failure: AttemptFailureException): GatewayException =
+        errorFactory.from(
+            context = context,
+            failure = failure.failureClass,
+            cause = failure.cause ?: failure,
+            retryAfter = failure.retryAfter,
+        )
 }
 
 private fun com.example.llmgateway.domain.model.ProviderResponse.toGatewayResponse(

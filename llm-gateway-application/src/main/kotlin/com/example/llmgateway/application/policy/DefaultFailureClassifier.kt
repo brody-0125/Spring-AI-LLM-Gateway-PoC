@@ -4,10 +4,14 @@ import com.example.llmgateway.domain.model.ErrorCategory
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.ProviderException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.CompletionException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeoutException
+import javax.net.ssl.SSLException
 
 class DefaultFailureClassifier : FailureClassifier {
     override fun classify(error: Throwable): FailureClass {
@@ -28,7 +32,13 @@ class DefaultFailureClassifier : FailureClassifier {
             }
         }
         return when (cause) {
-            is TimeoutException, is SocketTimeoutException -> FailureClass.TRANSIENT
+            is TimeoutException,
+            is SocketTimeoutException,
+            is ConnectException,
+            is NoRouteToHostException,
+            is UnknownHostException,
+            is SSLException,
+            -> FailureClass.TRANSIENT
             else -> FailureClass.UNKNOWN
         }
     }

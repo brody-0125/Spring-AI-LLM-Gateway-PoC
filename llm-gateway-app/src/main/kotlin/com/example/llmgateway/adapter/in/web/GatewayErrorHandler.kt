@@ -23,7 +23,7 @@ class GatewayErrorHandler {
             ErrorCategory.TRANSIENT -> if (
                 error.error.type == "rate_limited" || error.error.type == "gateway_rate_limited"
             ) 429 else 503
-            ErrorCategory.GATEWAY_FAULT -> 500
+            ErrorCategory.GATEWAY_FAULT -> if (error.error.type == "routing_unavailable") 503 else 500
         }
         val response = ResponseEntity.status(status)
             .header("X-Request-Id", error.error.requestId.value)

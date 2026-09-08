@@ -1,20 +1,41 @@
 package com.example.llmgateway.application.policy
 
+import com.example.llmgateway.domain.model.ErrorCategory
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.GatewayError
 import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.RequestContext
+import java.time.Duration
 
 class GatewayErrorFactory(
     private val failurePolicy: FailurePolicy,
 ) {
-    fun from(context: RequestContext, failure: FailureClass, cause: Throwable): GatewayException =
+    fun from(
+        context: RequestContext,
+        failure: FailureClass,
+        cause: Throwable,
+        retryAfter: Duration? = null,
+    ): GatewayException =
         GatewayException(
             error = GatewayError(
                 type = failurePolicy.errorType(failure),
                 category = failurePolicy.category(failure),
                 retryable = failurePolicy.clientRetryable(failure),
                 message = failurePolicy.clientMessage(failure),
+                requestId = context.requestId,
+                retryAfterSeconds = retryAfter?.toMillis()?.let { (it + 999) / 1_000 }
+                    ?.takeIf { it > 0 },
+            ),
+            cause = cause,
+        )
+
+    fun routingUnavailable(context: RequestContext, cause: Throwable): GatewayException =
+        GatewayException(
+            error = GatewayError(
+                type = "routing_unavailable",
+                category = ErrorCategory.GATEWAY_FAULT,
+                retryable = true,
+                message = "The gateway could not determine an available deployment",
                 requestId = context.requestId,
             ),
             cause = cause,
@@ -39,7 +60,7 @@ class GatewayErrorFactory(
         GatewayException(
             GatewayError(
                 type = "gateway_rate_limited",
-                category = com.example.llmgateway.domain.model.ErrorCategory.TRANSIENT,
+                category = ErrorCategory.TRANSIENT,
                 retryable = true,
                 message = "The gateway rate limit was exceeded",
                 requestId = context.requestId,
@@ -51,7 +72,7 @@ class GatewayErrorFactory(
         GatewayException(
             GatewayError(
                 type = "guardrail_rejected",
-                category = com.example.llmgateway.domain.model.ErrorCategory.CALLER_FIXABLE,
+                category = ErrorCategory.CALLER_FIXABLE,
                 retryable = false,
                 message = reason ?: "The request was rejected by a gateway guardrail",
                 requestId = context.requestId,

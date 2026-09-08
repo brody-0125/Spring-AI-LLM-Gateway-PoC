@@ -43,6 +43,7 @@ class DefaultStreamAttemptOperator(
         var usage = Usage(available = false)
         var finishReason = "stop"
         var firstTokenRecorded = false
+        var providerActive = true
 
         try {
             val providerChunks = deadlineOperator.execute(context.deadline) {
@@ -58,15 +59,21 @@ class DefaultStreamAttemptOperator(
                 }
                 chunk.usage?.let { usage = usage.mergeCumulative(it) }
                 chunk.finishReason?.let { finishReason = it }
-                yield(
-                    GatewayEvent.Delta(
-                        id = responseId,
-                        text = chunk.text,
-                        model = request.modelGroup.value,
-                        createdAtEpochSeconds = attempt.startedAt.epochSecond,
-                    ),
-                )
+                try {
+                    yield(
+                        GatewayEvent.Delta(
+                            id = responseId,
+                            text = chunk.text,
+                            model = request.modelGroup.value,
+                            createdAtEpochSeconds = attempt.startedAt.epochSecond,
+                        ),
+                    )
+                } catch (error: Throwable) {
+                    providerActive = false
+                    throw error
+                }
             }
+            providerActive = false
             circuitBreaker.onSuccess(deployment)
             val outcome = AttemptOutcome.Success(
                 usage,
@@ -95,13 +102,14 @@ class DefaultStreamAttemptOperator(
         } catch (error: AttemptAccountingException) {
             throw error
         } catch (error: Exception) {
+            if (providerActive.not()) throw error
             val failure = failureClassifier.classify(error)
             if (failurePolicy.circuitBreakerEligible(failure)) {
                 circuitBreaker.onFailure(deployment, failure)
             }
             val cost = costCalculationOperator.calculate(deployment, usage, Instant.now())
             record(AttemptOutcome.Failure(failure, usage, cost), attempt)
-            throw AttemptFailureException(failure, emitted, error)
+            throw AttemptFailureException.from(failure, error, emitted)
         }
     }
 

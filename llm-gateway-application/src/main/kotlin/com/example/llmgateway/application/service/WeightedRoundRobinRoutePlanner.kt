@@ -3,6 +3,7 @@ package com.example.llmgateway.application.service
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.RoutePlannerPort
+import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
@@ -21,12 +22,20 @@ class WeightedRoundRobinRoutePlanner(
     private val currentWeights = ConcurrentHashMap<ModelGroup, MutableMap<String, Int>>()
     private val selectionLock = Any()
 
-    override fun plan(request: CanonicalChatRequest, context: RequestContext): RoutingPlan {
+    override fun plan(request: CanonicalChatRequest, context: RequestContext): RoutingPlan =
+        plan(request, context, emptySet())
+
+    override fun plan(
+        request: CanonicalChatRequest,
+        context: RequestContext,
+        excludedDeploymentIds: Set<DeploymentId>,
+    ): RoutingPlan {
         val snapshot = deploymentRegistry.snapshot()
         val eligible = snapshot.deployments
             .filter { it.enabled && it.modelGroup == request.modelGroup }
             .filter { !request.stream || it.supportsStreaming }
             .filter { it.weight > 0 }
+            .filterNot { it.id in excludedDeploymentIds }
             .filter(circuitBreaker::allow)
             .sortedBy { it.id.value }
 

@@ -6,11 +6,11 @@ A Spring MVC LLM gateway built on JDK 21 virtual threads and Spring AI. Clients 
 
 - OpenAI-compatible `POST /v1/chat/completions` with JSON and Server-Sent Events (SSE)
 - Weighted round-robin routing with streaming-capability filtering
-- Fallback for transient, rate-limit, and context-window failures
+- Bounded execution with same-deployment retry and alternative-deployment selection
 - Provider timeouts and deployment circuit breakers
 - Bearer-token client, tenant, and administrator identification
 - Token-bucket rate limiting and configurable input guardrails
-- Request tracing, structured logging, and Micrometer latency, token, failure, fallback, and cost metrics
+- Request tracing, structured logging, and Micrometer latency, token, failure, alternative-selection, and cost metrics
 - Prometheus metrics at `/actuator/prometheus` and optional OTLP trace export on the internal management port
 - PostgreSQL-backed deployment registry and routing overrides
 - Redis-backed distributed rate-limit and circuit-breaker state
@@ -46,7 +46,7 @@ Supported provider settings:
 - OpenRouter: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_MODEL_GROUP`, `OPENROUTER_BASE_URL`, and `OPENROUTER_*_COST_PER_1K_USD`
 - AWS Bedrock: `GATEWAY_BEDROCK_ENABLED`, `BEDROCK_MODEL`, `BEDROCK_MODEL_GROUP`, `AWS_REGION`, and `BEDROCK_*_COST_PER_1K_USD`
 
-OpenAI and OpenRouter support provider `TIMEOUT` and `MAX_RETRIES` settings. Bedrock also supports connection, read, and connection-acquisition timeouts. Provider retries default to zero so gateway fallback remains the retry boundary.
+OpenAI and OpenRouter support provider `TIMEOUT` settings. Bedrock also supports connection, read, and connection-acquisition timeouts. Provider client retries are disabled so the gateway can enforce the total execution limit. Gateway execution settings are controlled by `GATEWAY_MAX_TOTAL_ATTEMPTS`, `GATEWAY_MAX_RETRIES_PER_DEPLOYMENT`, `GATEWAY_MAX_FALLBACKS`, `GATEWAY_RETRY_BACKOFF_INITIAL`, `GATEWAY_RETRY_BACKOFF_MULTIPLIER`, and `GATEWAY_RETRY_BACKOFF_MAX`.
 
 ## Deployment configuration
 
@@ -71,7 +71,7 @@ gateway:
           cache-write-input-cost-per-1k-usd: 0.0005
 ```
 
-The legacy single-deployment fields create one default deployment per provider.
+The single-deployment fields create one default deployment per provider.
 
 ## Runtime routing control
 
@@ -85,7 +85,7 @@ Invoke-RestMethod http://localhost:8080/internal/v1/routing `
   -Body '{"overrides":[{"id":"openai-primary","enabled":false},{"id":"openai-secondary","weight":2}]}'
 ```
 
-PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions. Redis uses an atomic Lua token bucket for rate limiting and a Lua-based open/half-open circuit breaker. Provider credentials and model clients are loaded at startup; runtime credential replacement is not exposed.
+PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions. Redis uses an atomic Lua token bucket for rate limiting and a Lua-based open/half-open circuit breaker. Each alternative deployment selection re-evaluates the current registry and circuit state. Provider credentials and model clients are loaded at startup; runtime credential replacement is not exposed.
 
 ## HTTP contract
 

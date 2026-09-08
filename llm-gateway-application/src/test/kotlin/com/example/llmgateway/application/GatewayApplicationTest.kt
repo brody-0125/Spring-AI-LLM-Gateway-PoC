@@ -17,7 +17,7 @@ import com.example.llmgateway.application.port.`in`.ChatCompletionQueryIn
 import com.example.llmgateway.application.operator.RequestAdmissionOperator
 import com.example.llmgateway.application.policy.DefaultFailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
-import com.example.llmgateway.application.policy.FallbackPolicy
+import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.service.DefaultChatCompletionCommandService
 import com.example.llmgateway.application.service.DefaultChatCompletionQueryService
@@ -39,6 +39,8 @@ import com.example.llmgateway.domain.model.ProviderException
 import com.example.llmgateway.domain.model.ProviderResponse
 import com.example.llmgateway.domain.model.GuardrailDecision
 import com.example.llmgateway.domain.model.RateLimitDecision
+import com.example.llmgateway.domain.model.ProviderFailurePhase
+import com.example.llmgateway.domain.model.RequestDisposition
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.RoutingPlan
 import com.example.llmgateway.domain.model.RoutingSnapshot
@@ -98,6 +100,16 @@ class GatewayApplicationTest : FunSpec() {
                 .shouldContainExactly("openai-a", "openrouter-a")
         }
 
+        test("planner excludes a previous deployment during re-evaluation") {
+            val planner = WeightedRoundRobinRoutePlanner(
+                FakeRegistry(listOf(openAi, openRouter)),
+                NoOpCircuitBreaker,
+            )
+
+            planner.plan(request(), context(), setOf(openAi.id)).candidates.map { it.id.value }
+                .shouldContainExactly("openrouter-a")
+        }
+
         test("transient primary failure falls back to alternate") {
             val observer = RecordingObserver()
             val invoker = FakeInvoker(
@@ -131,6 +143,53 @@ class GatewayApplicationTest : FunSpec() {
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker)
 
             gateway.query.complete(request(), context()).text shouldBe "rate limit fallback"
+            invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a")
+        }
+
+        test("a request that was not sent is retried on the same deployment") {
+            var firstCall = true
+            val invoker = FakeInvoker(
+                complete = { deployment ->
+                    if (deployment.id == openAi.id && firstCall) {
+                        firstCall = false
+                        throw ProviderException(
+                            vendor = Vendor.OPENAI,
+                            statusCode = 503,
+                            providerCode = "connection_failed",
+                            message = "connection failed",
+                            phase = ProviderFailurePhase.CONNECT,
+                            requestDisposition = RequestDisposition.NOT_SENT,
+                        )
+                    }
+                    ProviderResponse("recovered")
+                },
+            )
+            val gateway = gateway(
+                planner = FixedPlanner(openAi, openRouter),
+                invoker = invoker,
+                maxRetriesPerDeployment = 1,
+            )
+
+            gateway.query.complete(request(), context()).text shouldBe "recovered"
+            invoker.completeCalls.shouldContainExactly("openai-a", "openai-a")
+        }
+
+        test("a provider response failure is not retried on the same deployment") {
+            val invoker = FakeInvoker(
+                complete = { deployment ->
+                    if (deployment.id == openAi.id) {
+                        throw ProviderException(Vendor.OPENAI, 503, "overloaded", "temporary outage")
+                    }
+                    ProviderResponse("alternate response")
+                },
+            )
+            val gateway = gateway(
+                planner = FixedPlanner(openAi, openRouter),
+                invoker = invoker,
+                maxRetriesPerDeployment = 1,
+            )
+
+            gateway.query.complete(request(), context()).text shouldBe "alternate response"
             invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a")
         }
 
@@ -275,10 +334,17 @@ class GatewayApplicationTest : FunSpec() {
         invoker: FakeInvoker,
         observer: RecordingObserver = RecordingObserver(),
         maxAttempts: Int = 3,
+        maxRetriesPerDeployment: Int = 0,
     ): GatewayInputs {
         val failurePolicy = FailurePolicy()
         val failureClassifier = DefaultFailureClassifier()
-        val fallbackPolicy = FallbackPolicy(failurePolicy, maxAttempts)
+        val attemptPolicy = AttemptPolicy(
+            failurePolicy = failurePolicy,
+            maxTotalAttempts = maxAttempts,
+            maxRetriesPerDeployment = maxRetriesPerDeployment,
+            maxFallbacks = (maxAttempts - 1).coerceAtLeast(0),
+            sleeper = {},
+        )
         val errorFactory = GatewayErrorFactory(failurePolicy)
         val deadlineOperator = VirtualThreadDeadlineOperator()
 
@@ -294,7 +360,7 @@ class GatewayApplicationTest : FunSpec() {
                         circuitBreaker = NoOpCircuitBreaker,
                         failurePolicy = failurePolicy,
                     ),
-                    fallbackPolicy = fallbackPolicy,
+                    attemptPolicy = attemptPolicy,
                     errorFactory = errorFactory,
                 ),
                 admissionOperator = NoOpAdmissionOperator,
@@ -310,7 +376,7 @@ class GatewayApplicationTest : FunSpec() {
                         circuitBreaker = NoOpCircuitBreaker,
                         failurePolicy = failurePolicy,
                     ),
-                    fallbackPolicy = fallbackPolicy,
+                    attemptPolicy = attemptPolicy,
                     errorFactory = errorFactory,
                 ),
                 admissionOperator = NoOpAdmissionOperator,

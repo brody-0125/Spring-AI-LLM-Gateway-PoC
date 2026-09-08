@@ -66,6 +66,13 @@ gateway:
     max-input-characters: ${GATEWAY_GUARDRAIL_MAX_INPUT_CHARACTERS:100000}
     blocked-phrases: ${GATEWAY_GUARDRAIL_BLOCKED_PHRASES:}
   resilience:
+    max-total-attempts: ${GATEWAY_MAX_TOTAL_ATTEMPTS:3}
+    max-retries-per-deployment: ${GATEWAY_MAX_RETRIES_PER_DEPLOYMENT:1}
+    max-fallbacks: ${GATEWAY_MAX_FALLBACKS:2}
+    backoff:
+      initial: ${GATEWAY_RETRY_BACKOFF_INITIAL:100ms}
+      multiplier: ${GATEWAY_RETRY_BACKOFF_MULTIPLIER:2.0}
+      max: ${GATEWAY_RETRY_BACKOFF_MAX:2s}
     circuit-breaker:
       enabled: ${GATEWAY_CIRCUIT_BREAKER_ENABLED:true}
       failure-threshold: ${GATEWAY_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
@@ -80,7 +87,6 @@ gateway:
       model-group: ${OPENAI_MODEL_GROUP:default}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
       timeout: ${OPENAI_TIMEOUT:60s}
-      max-retries: ${OPENAI_MAX_RETRIES:0}
       input-cost-per-1k-usd: ${OPENAI_INPUT_COST_PER_1K_USD:0}
       output-cost-per-1k-usd: ${OPENAI_OUTPUT_COST_PER_1K_USD:0}
       cache-read-input-cost-per-1k-usd: ${OPENAI_CACHE_READ_INPUT_COST_PER_1K_USD:0}
@@ -92,7 +98,6 @@ gateway:
       model-group: ${OPENROUTER_MODEL_GROUP:default}
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       timeout: ${OPENROUTER_TIMEOUT:60s}
-      max-retries: ${OPENROUTER_MAX_RETRIES:0}
       input-cost-per-1k-usd: ${OPENROUTER_INPUT_COST_PER_1K_USD:0}
       output-cost-per-1k-usd: ${OPENROUTER_OUTPUT_COST_PER_1K_USD:0}
       cache-read-input-cost-per-1k-usd: ${OPENROUTER_CACHE_READ_INPUT_COST_PER_1K_USD:0}
