@@ -356,6 +356,7 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 dialect VARCHAR(64) NOT NULL,
                 model_group VARCHAR(128) NOT NULL,
                 model VARCHAR(256) NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
                 enabled BOOLEAN NOT NULL,
                 weight INTEGER NOT NULL,
                 supports_streaming BOOLEAN NOT NULL,

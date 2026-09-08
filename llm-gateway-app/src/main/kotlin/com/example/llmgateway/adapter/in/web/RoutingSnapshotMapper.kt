@@ -14,6 +14,7 @@ internal object RoutingSnapshotMapper {
                 modelGroup = deployment.modelGroup.value,
                 model = deployment.model,
                 enabled = deployment.enabled,
+                priority = deployment.priority,
                 weight = deployment.weight,
                 supportsStreaming = deployment.supportsStreaming,
             )

@@ -11,6 +11,7 @@ class ProviderDeploymentProperties {
     var baseUrl: String = ""
     var region: String = ""
     var enabled: Boolean = true
+    var priority: Int = 0
     var weight: Int = 1
     var supportsStreaming: Boolean = true
     var inputCostPer1kUsd: BigDecimal = BigDecimal.ZERO

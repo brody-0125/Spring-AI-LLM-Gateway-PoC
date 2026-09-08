@@ -97,5 +97,6 @@ class RoutingAdminController(
 private fun DeploymentOverrideDto.toDomain() = com.example.llmgateway.domain.model.DeploymentOverride(
     id = DeploymentId(id),
     enabled = enabled,
+    priority = priority,
     weight = weight,
 )

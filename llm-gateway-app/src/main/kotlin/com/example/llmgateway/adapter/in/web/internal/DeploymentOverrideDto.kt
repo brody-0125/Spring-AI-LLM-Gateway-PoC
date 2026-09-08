@@ -6,5 +6,6 @@ import com.fasterxml.jackson.annotation.JsonProperty
 data class DeploymentOverrideDto @JsonCreator(mode = JsonCreator.Mode.PROPERTIES) constructor(
     @param:JsonProperty("id") val id: String,
     @param:JsonProperty("enabled") val enabled: Boolean? = null,
+    @param:JsonProperty("priority") val priority: Int? = null,
     @param:JsonProperty("weight") val weight: Int? = null,
 )

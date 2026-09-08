@@ -21,7 +21,7 @@ final class H2CompatibleJdbcTemplate extends JdbcTemplate {
     public int update(String sql, Object... args) {
         if (sql.contains("INSERT INTO llm_gateway_deployment")) {
             return super.update(
-                "MERGE INTO llm_gateway_deployment KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                "MERGE INTO llm_gateway_deployment KEY(id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 args
             );
         }

@@ -32,6 +32,7 @@ class PostgresDeploymentRegistryAdapterTest : FunSpec() {
                     dialect VARCHAR(64) NOT NULL,
                     model_group VARCHAR(128) NOT NULL,
                     model VARCHAR(256) NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
                     enabled BOOLEAN NOT NULL,
                     weight INTEGER NOT NULL,
                     supports_streaming BOOLEAN NOT NULL,
@@ -57,9 +58,10 @@ class PostgresDeploymentRegistryAdapterTest : FunSpec() {
             first.initialize()
             first.snapshot().version shouldBe 1L
 
-            first.update(listOf(DeploymentOverride(deployment.id, enabled = false, weight = 0)))
+            first.update(listOf(DeploymentOverride(deployment.id, enabled = false, priority = 3, weight = 0)))
             val second = PostgresDeploymentRegistryAdapter(jdbc, transactionManager, listOf(deployment))
             second.snapshot().deployments.single().enabled shouldBe false
+            second.snapshot().deployments.single().priority shouldBe 3
             second.snapshot().version shouldBe 2L
 
             shouldThrow<IllegalArgumentException> {

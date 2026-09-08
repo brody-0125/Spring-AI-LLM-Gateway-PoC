@@ -21,7 +21,7 @@ import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.service.DefaultChatCompletionCommandService
 import com.example.llmgateway.application.service.DefaultChatCompletionQueryService
-import com.example.llmgateway.application.service.WeightedRoundRobinRoutePlanner
+import com.example.llmgateway.application.service.WeightedRendezvousRoutePlanner
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.MessageRole
@@ -67,47 +67,70 @@ class GatewayApplicationTest : FunSpec() {
             val disabled = openAi.copy(id = DeploymentId("disabled"), enabled = false)
             val nonStreaming = openRouter.copy(id = DeploymentId("non-streaming"), supportsStreaming = false)
             val otherGroup = openRouter.copy(id = DeploymentId("other-group"), modelGroup = ModelGroup("other"))
-            val planner = WeightedRoundRobinRoutePlanner(
+            val planner = WeightedRendezvousRoutePlanner(
                 FakeRegistry(listOf(disabled, nonStreaming, otherGroup, openAi)),
                 NoOpCircuitBreaker,
             )
 
-            planner.plan(request(stream = true), context()).candidates.map { it.id.value }
+            planner.plan(request(stream = true), requestContext()).candidates.map { it.id.value }
                 .shouldContainExactly("openai-a")
         }
 
-        test("round robin changes primary deployment") {
-            val planner = WeightedRoundRobinRoutePlanner(
+        test("routing is deterministic for the same request across gateway instances") {
+            val planner = WeightedRendezvousRoutePlanner(
+                FakeRegistry(listOf(openAi, openRouter)),
+                NoOpCircuitBreaker,
+            )
+            val secondPlanner = WeightedRendezvousRoutePlanner(
                 FakeRegistry(listOf(openAi, openRouter)),
                 NoOpCircuitBreaker,
             )
 
-            planner.plan(request(), context()).primary.id shouldBe openAi.id
-            planner.plan(request(), context()).primary.id shouldBe openRouter.id
+            val selected = planner.plan(request(), requestContext("stable-request")).primary.id
+            secondPlanner.plan(request(), requestContext("stable-request")).primary.id shouldBe selected
         }
 
-        test("weighted planner keeps alternates unique while distributing primary") {
+        test("weighted routing keeps alternates unique while distributing requests") {
             val weightedOpenAi = openAi.copy(weight = 2)
-            val planner = WeightedRoundRobinRoutePlanner(
+            val planner = WeightedRendezvousRoutePlanner(
                 FakeRegistry(listOf(weightedOpenAi, openRouter)),
                 NoOpCircuitBreaker,
             )
-            val primaries = (1..6).map { planner.plan(request(), context()).primary.id.value }
+            val primaries = (1..100).map { planner.plan(request(), requestContext("weighted-$it")).primary.id.value }
 
-            primaries.count { it == "openai-a" } shouldBe 4
-            primaries.count { it == "openrouter-a" } shouldBe 2
-            planner.plan(request(), context()).candidates.map { it.id.value }
-                .shouldContainExactly("openai-a", "openrouter-a")
+            primaries.toSet() shouldBe setOf("openai-a", "openrouter-a")
+            (primaries.count { it == "openai-a" } in 55..80) shouldBe true
+            planner.plan(request(), requestContext("weighted-candidates")).candidates.map { it.id.value }
+                .toSet() shouldBe setOf("openai-a", "openrouter-a")
         }
 
         test("planner excludes a previous deployment during re-evaluation") {
-            val planner = WeightedRoundRobinRoutePlanner(
+            val planner = WeightedRendezvousRoutePlanner(
                 FakeRegistry(listOf(openAi, openRouter)),
                 NoOpCircuitBreaker,
             )
 
-            planner.plan(request(), context(), setOf(openAi.id)).candidates.map { it.id.value }
+            planner.plan(request(), requestContext(), setOf(openAi.id)).candidates.map { it.id.value }
                 .shouldContainExactly("openrouter-a")
+        }
+
+        test("priority tier is exhausted before a lower-priority deployment is selected") {
+            val preferred = openAi.copy(priority = 0)
+            val peer = openRouter.copy(id = DeploymentId("openrouter-peer"), priority = 0, weight = 100)
+            val fallback = openRouter.copy(priority = 1, weight = 100)
+            val planner = WeightedRendezvousRoutePlanner(
+                FakeRegistry(listOf(preferred, peer, fallback)),
+                NoOpCircuitBreaker,
+            )
+
+            val plan = planner.plan(request(), requestContext("priority-primary"))
+            plan.primary.priority shouldBe 0
+            plan.alternates.map { it.priority } shouldBe listOf(0, 1)
+            planner.plan(
+                request(),
+                requestContext("priority-fallback"),
+                setOf(preferred.id, peer.id),
+            ).primary.id shouldBe fallback.id
         }
 
         test("transient primary failure falls back to alternate") {
@@ -123,7 +146,7 @@ class GatewayApplicationTest : FunSpec() {
             )
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker, observer)
 
-            gateway.query.complete(request(), context()).text shouldBe "fallback response"
+            gateway.query.complete(request(), requestContext()).text shouldBe "fallback response"
             invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a")
             observer.outcomes shouldHaveSize 2
             (observer.outcomes[0] is AttemptOutcome.Failure) shouldBe true
@@ -142,7 +165,7 @@ class GatewayApplicationTest : FunSpec() {
             )
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker)
 
-            gateway.query.complete(request(), context()).text shouldBe "rate limit fallback"
+            gateway.query.complete(request(), requestContext()).text shouldBe "rate limit fallback"
             invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a")
         }
 
@@ -170,7 +193,7 @@ class GatewayApplicationTest : FunSpec() {
                 maxRetriesPerDeployment = 1,
             )
 
-            gateway.query.complete(request(), context()).text shouldBe "recovered"
+            gateway.query.complete(request(), requestContext()).text shouldBe "recovered"
             invoker.completeCalls.shouldContainExactly("openai-a", "openai-a")
         }
 
@@ -189,7 +212,7 @@ class GatewayApplicationTest : FunSpec() {
                 maxRetriesPerDeployment = 1,
             )
 
-            gateway.query.complete(request(), context()).text shouldBe "alternate response"
+            gateway.query.complete(request(), requestContext()).text shouldBe "alternate response"
             invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a")
         }
 
@@ -202,7 +225,7 @@ class GatewayApplicationTest : FunSpec() {
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker)
 
             val error = shouldThrow<GatewayException> {
-                gateway.query.complete(request(), context())
+                gateway.query.complete(request(), requestContext())
             }
             error.error.type shouldBe "provider_authentication_failed"
             error.error.retryable shouldBe false
@@ -223,7 +246,7 @@ class GatewayApplicationTest : FunSpec() {
             )
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker)
 
-            val events = gateway.command.stream(request(stream = true), context()).toList()
+            val events = gateway.command.stream(request(stream = true), requestContext()).toList()
             events shouldHaveSize 2
             (events[0] as com.example.llmgateway.domain.model.GatewayEvent.Delta).text shouldBe "fallback chunk"
             (events[0] as com.example.llmgateway.domain.model.GatewayEvent.Delta).model shouldBe "default"
@@ -243,7 +266,7 @@ class GatewayApplicationTest : FunSpec() {
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker)
 
             val error = shouldThrow<GatewayException> {
-                gateway.command.stream(request(stream = true), context()).toList()
+                gateway.command.stream(request(stream = true), requestContext()).toList()
             }
             error.error.type shouldBe "provider_unavailable"
             invoker.streamCalls.shouldContainExactly("openai-a")
@@ -263,7 +286,7 @@ class GatewayApplicationTest : FunSpec() {
             )
             val gateway = gateway(planner, invoker)
 
-            shouldThrow<GatewayException> { gateway.query.complete(request(), context()) }
+            shouldThrow<GatewayException> { gateway.query.complete(request(), requestContext()) }
             invoker.completeCalls.shouldContainExactly("openai-a", "openrouter-a", "openai-third")
         }
 
@@ -276,7 +299,7 @@ class GatewayApplicationTest : FunSpec() {
             val gateway = gateway(FixedPlanner(openAi, openRouter), invoker, maxAttempts = 2)
 
             val error = shouldThrow<GatewayException> {
-                gateway.query.complete(request(), context())
+                gateway.query.complete(request(), requestContext())
             }
             error.error.type shouldBe "context_window_exceeded"
             error.error.retryable shouldBe false
@@ -307,7 +330,7 @@ class GatewayApplicationTest : FunSpec() {
             )
 
             val error = shouldThrow<GatewayException> {
-                admission.execute(request(), context())
+                admission.execute(request(), requestContext())
             }
 
             error.error.type shouldBe "gateway_rate_limited"
@@ -326,7 +349,7 @@ class GatewayApplicationTest : FunSpec() {
             )
 
             val error = shouldThrow<GatewayException> {
-                admission.execute(request(), context())
+                admission.execute(request(), requestContext())
             }
 
             error.error.type shouldBe "rate_limit_unavailable"
@@ -342,7 +365,7 @@ class GatewayApplicationTest : FunSpec() {
             )
 
             val error = shouldThrow<GatewayException> {
-                admission.execute(request(), context())
+                admission.execute(request(), requestContext())
             }
 
             error.error.type shouldBe "guardrail_rejected"
@@ -411,8 +434,8 @@ class GatewayApplicationTest : FunSpec() {
         stream = stream,
     )
 
-    private fun context() = RequestContext(
-        requestId = RequestId("req-test"),
+    private fun requestContext(requestId: String = "req-test") = RequestContext(
+        requestId = RequestId(requestId),
         deadline = Instant.now().plusSeconds(10),
     )
 }

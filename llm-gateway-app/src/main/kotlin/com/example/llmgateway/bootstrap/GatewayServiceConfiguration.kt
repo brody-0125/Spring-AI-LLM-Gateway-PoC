@@ -37,7 +37,7 @@ import com.example.llmgateway.application.service.DefaultChatCompletionCommandSe
 import com.example.llmgateway.application.service.DefaultChatCompletionQueryService
 import com.example.llmgateway.application.service.DefaultRoutingCommandService
 import com.example.llmgateway.application.service.DefaultRoutingQueryService
-import com.example.llmgateway.application.service.WeightedRoundRobinRoutePlanner
+import com.example.llmgateway.application.service.WeightedRendezvousRoutePlanner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.beans.factory.annotation.Value
@@ -83,7 +83,7 @@ class GatewayServiceConfiguration {
     fun routePlanner(
         deploymentRegistry: DeploymentRegistryPort,
         circuitBreaker: CircuitBreakerPort,
-    ): RoutePlannerPort = WeightedRoundRobinRoutePlanner(deploymentRegistry, circuitBreaker)
+    ): RoutePlannerPort = WeightedRendezvousRoutePlanner(deploymentRegistry, circuitBreaker)
 
     @Bean
     fun requestAdmissionOperator(

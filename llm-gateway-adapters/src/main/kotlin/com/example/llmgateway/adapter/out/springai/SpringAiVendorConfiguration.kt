@@ -339,6 +339,7 @@ class SpringAiVendorConfiguration {
         dialect = dialect,
         modelGroup = ModelGroup(modelGroup.ifBlank { "default" }),
         model = model,
+        priority = priority,
         weight = weight,
         enabled = enabled,
         supportsStreaming = supportsStreaming,

@@ -13,6 +13,7 @@ data class Deployment(
     val dialect: Dialect,
     val modelGroup: ModelGroup,
     val model: String,
+    val priority: Int = 0,
     val weight: Int = 1,
     val enabled: Boolean = true,
     val supportsStreaming: Boolean = true,
@@ -20,7 +21,12 @@ data class Deployment(
     val outputCostPer1kUsd: BigDecimal = BigDecimal.ZERO,
     val cacheReadInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO,
     val cacheWriteInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO,
-)
+) {
+    init {
+        require(priority >= 0) { "deployment priority must not be negative" }
+        require(weight >= 0) { "deployment weight must not be negative" }
+    }
+}
 
 fun Deployment.costOf(usage: Usage): Cost =
     // Compatibility path for callers that have not yet injected a pricing catalog.

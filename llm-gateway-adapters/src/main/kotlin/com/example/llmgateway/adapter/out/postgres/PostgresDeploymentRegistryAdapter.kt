@@ -79,15 +79,16 @@ class PostgresDeploymentRegistryAdapter(
         jdbcTemplate.update(
             """
             INSERT INTO llm_gateway_deployment (
-                id, vendor, dialect, model_group, model, enabled, weight,
+                id, vendor, dialect, model_group, model, priority, enabled, weight,
                 supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd,
                 cache_read_input_cost_per_1k_usd, cache_write_input_cost_per_1k_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 vendor = EXCLUDED.vendor,
                 dialect = EXCLUDED.dialect,
                 model_group = EXCLUDED.model_group,
                 model = EXCLUDED.model,
+                priority = EXCLUDED.priority,
                 supports_streaming = EXCLUDED.supports_streaming,
                 input_cost_per_1k_usd = EXCLUDED.input_cost_per_1k_usd,
                 output_cost_per_1k_usd = EXCLUDED.output_cost_per_1k_usd,
@@ -100,6 +101,7 @@ class PostgresDeploymentRegistryAdapter(
             deployment.dialect.name,
             deployment.modelGroup.value,
             deployment.model,
+            deployment.priority,
             deployment.enabled,
             deployment.weight,
             deployment.supportsStreaming,
@@ -126,12 +128,14 @@ class PostgresDeploymentRegistryAdapter(
     private fun applyOverride(override: DeploymentOverride) {
         val assignments = buildList {
             if (override.enabled != null) add("enabled = ?")
+            if (override.priority != null) add("priority = ?")
             if (override.weight != null) add("weight = ?")
         }
         if (assignments.isEmpty()) return
 
         val parameters = buildList<Any> {
             override.enabled?.let(::add)
+            override.priority?.let(::add)
             override.weight?.let(::add)
             add(override.id.value)
         }
@@ -148,7 +152,7 @@ class PostgresDeploymentRegistryAdapter(
         ) ?: error("routing registry version row is missing")
         val deployments = jdbcTemplate.query(
             """
-            SELECT id, vendor, dialect, model_group, model, enabled, weight,
+            SELECT id, vendor, dialect, model_group, model, priority, enabled, weight,
                    supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd,
                    cache_read_input_cost_per_1k_usd, cache_write_input_cost_per_1k_usd
             FROM llm_gateway_deployment
@@ -161,6 +165,7 @@ class PostgresDeploymentRegistryAdapter(
                 dialect = Dialect.valueOf(resultSet.getString("dialect")),
                 modelGroup = ModelGroup(resultSet.getString("model_group")),
                 model = resultSet.getString("model"),
+                priority = resultSet.getInt("priority"),
                 enabled = resultSet.getBoolean("enabled"),
                 weight = resultSet.getInt("weight"),
                 supportsStreaming = resultSet.getBoolean("supports_streaming"),

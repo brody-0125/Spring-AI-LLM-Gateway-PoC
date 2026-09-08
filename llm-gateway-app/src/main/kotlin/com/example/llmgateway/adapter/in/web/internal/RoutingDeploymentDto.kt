@@ -8,6 +8,7 @@ data class RoutingDeploymentDto(
     @param:JsonProperty("model_group") val modelGroup: String,
     @param:JsonProperty("model") val model: String,
     @param:JsonProperty("enabled") val enabled: Boolean,
+    @param:JsonProperty("priority") val priority: Int,
     @param:JsonProperty("weight") val weight: Int,
     @param:JsonProperty("supports_streaming") val supportsStreaming: Boolean,
 )
