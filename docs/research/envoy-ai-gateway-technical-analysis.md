@@ -770,6 +770,23 @@ GuardrailPort             != ResponseRedactor/Logging adapter
 
 현재 프로젝트에 이미 있는 `DefaultCompleteChatOperation`, `DefaultStreamChatOperation`, `RequestAdmissionOperator`, `CompleteAttemptOperator`, `StreamAttemptOperator`, `PricingCatalogPort`, `Redis*`, `Postgres*` 컴포넌트는 이 방향과 일치한다. 보강 시 새로운 provider 분기나 persistence 호출을 operation에 직접 추가하지 말고 해당 port/adapter로 이동시킨다.
 
+### 11.1 현재 구현과 기준 아키텍처의 비교
+
+현재 구현은 n개의 BFF가 공급자 topology를 알지 않아도 사용할 수 있는 공통 data-plane gateway로 운용할 수 있다. 다만 Envoy 계열의 선언형 CRD/xDS control plane과 동일한 운영 플랫폼은 아니며, 다음 차이를 운용 전제로 명시해야 한다.
+
+| 영역 | 현재 구현 | 기준 아키텍처와의 차이 및 판단 |
+|---|---|---|
+| control/data plane | Spring composition root + PostgreSQL routing snapshot + Redis 실행 상태 | 선언형 CRD/xDS 배포·자동 rollback은 제공하지 않음. 내부 routing admin API와 DB migration/운영 절차가 control plane 역할을 함 |
+| provider binding | OpenAI, AWS Bedrock Converse, OpenRouter를 Spring AI adapter로 분리 | provider별 endpoint/auth/error/usage를 내부에서 정규화하며, client에는 provider 정보와 전용 헤더를 노출하지 않음 |
+| routing | priority tier 선필터 + weighted rendezvous + streaming capability + Redis circuit 상태 | Envoy endpoint discovery/LB를 대체하는 애플리케이션 라우터. 외부 health probe와 배포 상태 publish는 운영 플랫폼이 담당해야 함 |
+| retry/fallback | 전체 deadline·attempt budget, pre-byte retry/fallback, streaming visible byte 이후 fallback 금지 | stream 중 upstream 재시도와 transparent fallback을 그대로 재현하지 않고 HTTP/SSE 계약 안전성을 우선함 |
+| rate limit | Redis Lua token bucket, tenant/caller/model-group key, backend failure를 표준 오류로 반환 | request-rate 제한은 구현됨. usage/cost quota reservation은 별도 정책·port가 필요하며 현재 기본 동작에 혼합하지 않음 |
+| cost/observability | attempt/request 원장, versioned pricing, Micrometer metric, OTel observation, structured log | prompt/response content는 기본 수집하지 않음. PostgreSQL ledger 재처리/outbox와 collector 운영은 배포 환경 책임 |
+| guardrail | 입력/출력 크기·phrase 정책, stream rolling window, safe policy error | 외부 moderation/DLP/PII/prompt-injection 판정기는 port 뒤에 추가해야 하며 현재 기본 adapter는 단순 정책 구현임 |
+| public contract | OpenAPI 3.0.3 기반 provider-neutral chat completion + JSON/SSE + 표준 오류 | tool calling·multimodal·provider-specific option은 의도적으로 제외. 필요한 기능은 canonical model과 provider adapter를 먼저 확장해야 함 |
+
+따라서 “Production ready”의 범위는 provider-neutral data plane의 안정적인 요청 처리, 분산 routing/rate-limit/circuit 상태, 비용 원장, 관측성, 표준 계약까지로 정의한다. 선언형 control plane, 외부 정책 엔진, usage quota, 운영자용 rollback/audit UI는 별도 제품 범위이며 존재하지 않는 기능으로 문서화하지 않는다.
+
 ## 12. Production-ready 보강 우선순위
 
 ### P0: 계약과 안전한 실패
@@ -784,7 +801,7 @@ GuardrailPort             != ResponseRedactor/Logging adapter
 ### P1: 분산 제어면과 라우팅
 
 - PostgreSQL 기반 deployment/model registry 및 pricing catalog
-- Redis 기반 atomic rate-limit/quota reservation
+- Redis 기반 atomic rate-limit; usage quota reservation은 별도 확장 포인트
 - versioned routing snapshot, checksum, rollback, compatibility check
 - priority/weight deterministic selection과 health/circuit eligibility
 - quota-aware routing은 별도 `QuotaAvailabilityPort`로 도입하고 사후 charge와 분리

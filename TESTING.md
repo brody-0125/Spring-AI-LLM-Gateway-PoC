@@ -29,7 +29,7 @@ $env:RUN_TESTCONTAINERS = "true"
 
 ## 테스트 구성
 
-- `llm-gateway-application`: Kotest 단위 테스트. filtering, weighted round-robin, bounded same-deployment retry, `5xx`/`429` alternative deployment selection, 인증 오류 경계, stream retry boundary, maximum attempt count, connection failure classification/policy matrix를 검증한다.
+- `llm-gateway-application`: Kotest 단위 테스트. priority/weighted rendezvous filtering, bounded same-deployment retry, `5xx`/`429` alternative deployment selection, 인증 오류 경계, stream retry boundary, maximum attempt count, connection failure classification/policy matrix를 검증한다.
 - `llm-gateway-app/ChatCompletionRequestMapperTest`: public request의 provider 공통 옵션, stream 플래그, token alias 충돌, 잘못된 role/model/temperature를 검증한다.
 - `llm-gateway-app/GatewayControllerIntegrationTest`: Spring MVC JSON/SSE contract, request ID 생성, null/unknown field 거부, token alias 충돌, error sanitization, logical model/finish reason을 검증한다.
 - `llm-gateway-app/GatewaySecurityIntegrationTest`: client/admin 경계와 내부 routing control plane 접근 제어를 검증한다.

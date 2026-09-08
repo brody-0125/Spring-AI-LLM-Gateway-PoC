@@ -6,6 +6,7 @@ import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.CanonicalMessage
 import com.example.llmgateway.domain.model.CanonicalOptions
+import java.util.Locale
 
 internal object ChatCompletionRequestMapper {
     fun toCanonical(request: ChatCompletionRequest): CanonicalChatRequest {
@@ -33,7 +34,7 @@ internal object ChatCompletionRequestMapper {
             modelGroup = ModelGroup(request.model),
             messages = request.messages.map { message ->
                 CanonicalMessage(
-                    role = when (message.role.lowercase()) {
+                    role = when (message.role.lowercase(Locale.ROOT)) {
                         "system" -> MessageRole.SYSTEM
                         "user" -> MessageRole.USER
                         "assistant" -> MessageRole.ASSISTANT

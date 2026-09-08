@@ -14,6 +14,7 @@ import com.example.llmgateway.domain.model.AttemptContext
 import com.example.llmgateway.domain.model.AttemptOutcome
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
+import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.ProviderResponse
 import com.example.llmgateway.domain.model.ProviderException
@@ -64,9 +65,14 @@ class DefaultCompleteAttemptOperator(
                 context = context,
             )
         } catch (error: GatewayException) {
+            val failureClass = if (error.error.code == "GUARDRAIL_UNAVAILABLE") {
+                FailureClass.TRANSIENT
+            } else {
+                FailureClass.CONTENT_POLICY
+            }
             record(
                 AttemptOutcome.Failure(
-                    failureClass = com.example.llmgateway.domain.model.FailureClass.CONTENT_POLICY,
+                    failureClass = failureClass,
                     usage = response.usage,
                     cost = costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
                     providerRequestId = response.providerRequestId,

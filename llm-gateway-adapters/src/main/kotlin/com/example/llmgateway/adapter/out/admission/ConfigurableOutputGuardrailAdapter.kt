@@ -3,6 +3,7 @@ package com.example.llmgateway.adapter.out.admission
 import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.domain.model.GuardrailDecision
 import com.example.llmgateway.domain.model.RequestContext
+import java.util.Locale
 
 class ConfigurableOutputGuardrailAdapter(
     private val enabled: Boolean,
@@ -13,7 +14,7 @@ class ConfigurableOutputGuardrailAdapter(
     private val blockedPhrases = blockedPhrases
         .map(String::trim)
         .filter(String::isNotEmpty)
-        .map(String::lowercase)
+        .map { it.lowercase(Locale.ROOT) }
 
     init {
         require(maxOutputCharacters > 0) { "maxOutputCharacters must be positive" }
@@ -25,7 +26,7 @@ class ConfigurableOutputGuardrailAdapter(
             return GuardrailDecision(false, "The model response exceeds the gateway output limit", "OUTPUT_TOO_LARGE")
         }
 
-        val normalized = output.lowercase()
+        val normalized = output.lowercase(Locale.ROOT)
         return if (blockedPhrases.any(normalized::contains)) {
             GuardrailDecision(false, "The model response was rejected by a configured content guardrail", "OUTPUT_POLICY_BLOCKED")
         } else {

@@ -24,6 +24,7 @@ class TestDeploymentRegistryAdapter(
                 val change = changes[deployment.id]
                 deployment.copy(
                     enabled = change?.enabled ?: deployment.enabled,
+                    priority = change?.priority ?: deployment.priority,
                     weight = change?.weight ?: deployment.weight,
                 )
             }

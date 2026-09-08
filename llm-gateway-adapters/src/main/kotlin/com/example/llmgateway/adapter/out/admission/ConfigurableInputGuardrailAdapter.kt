@@ -4,6 +4,7 @@ import com.example.llmgateway.application.port.out.InputGuardrailPort
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.GuardrailDecision
 import com.example.llmgateway.domain.model.RequestContext
+import java.util.Locale
 
 class ConfigurableInputGuardrailAdapter(
     private val enabled: Boolean,
@@ -14,7 +15,7 @@ class ConfigurableInputGuardrailAdapter(
     private val blockedPhrases = blockedPhrases
         .map(String::trim)
         .filter(String::isNotEmpty)
-        .map(String::lowercase)
+        .map { it.lowercase(Locale.ROOT) }
 
     init {
         require(maxInputCharacters > 0) { "maxInputCharacters must be positive" }
@@ -28,7 +29,7 @@ class ConfigurableInputGuardrailAdapter(
             return GuardrailDecision(false, "The request exceeds the gateway input limit", "INPUT_TOO_LARGE")
         }
 
-        val normalized = input.lowercase()
+        val normalized = input.lowercase(Locale.ROOT)
         return if (blockedPhrases.any(normalized::contains)) {
             GuardrailDecision(false, "The request was rejected by a configured content guardrail", "INPUT_POLICY_BLOCKED")
         } else {

@@ -5,7 +5,7 @@ A Spring MVC LLM gateway built on JDK 21 virtual threads and Spring AI. Clients 
 ## Features
 
 - Provider-neutral `POST /v1/chat/completions` with JSON and Server-Sent Events (SSE)
-- Weighted round-robin routing with streaming-capability filtering
+- Priority-aware weighted rendezvous routing with streaming-capability filtering
 - Bounded execution with same-deployment retry and alternative-deployment selection
 - Provider timeouts and deployment circuit breakers
 - Bearer-token client, tenant, and administrator identification
@@ -126,6 +126,25 @@ The core and domain modules have no Spring or provider SDK dependencies. The gat
 ```
 
 The test suite includes Kotest unit tests, MVC integration tests, and WireMock/Testcontainers provider tests for success, fallback, and streaming paths. Testcontainers and external-vendor tests are opt-in through `RUN_TESTCONTAINERS=true` and `RUN_EXTERNAL_VENDOR_TESTS=true`.
+
+## E2E verification with k6
+
+The k6 scenario uses the public client contract and reads the gateway credential only from `K6_GATEWAY_API_KEY`.
+
+```powershell
+$env:K6_BASE_URL = "http://localhost:8080"
+$env:K6_GATEWAY_API_KEY = "<gateway-client-key>"
+$env:K6_MODEL = "default"
+k6 run .\e2e\k6\gateway.js
+
+$env:K6_SCENARIO = "stream"
+k6 run .\e2e\k6\gateway.js
+
+$env:K6_SCENARIO = "rate-limit"
+k6 run .\e2e\k6\gateway.js
+```
+
+The script validates successful JSON completion, SSE completion with `[DONE]`, and the stable `200`/`429` rate-limit boundary. Provider fallback and distributed state semantics remain covered by the Testcontainers suites.
 
 ## License
 
