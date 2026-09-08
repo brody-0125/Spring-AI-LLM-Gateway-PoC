@@ -187,6 +187,7 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 val outcome = AttemptOutcome.Success(
                     usage = Usage(inputTokens = 12, outputTokens = 8),
                     cost = Cost(status = com.example.llmgateway.domain.model.CostStatus.UNKNOWN),
+                    providerRequestId = "provider-response-1",
                 )
 
                 accounting.record(context, outcome)
@@ -204,6 +205,12 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                     "accounting-request",
                     "accounting-attempt",
                 ) shouldBe "UNKNOWN"
+                jdbc.queryForObject(
+                    "SELECT provider_request_id FROM llm_gateway_attempt_usage WHERE request_id = ? AND attempt_id = ?",
+                    String::class.java,
+                    "accounting-request",
+                    "accounting-attempt",
+                ) shouldBe "provider-response-1"
             }
 
         test("PostgreSQL request accounting aggregates all provider attempts idempotently")
@@ -417,6 +424,7 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 started_at TIMESTAMPTZ NOT NULL,
                 completed_at TIMESTAMPTZ NOT NULL,
                 outcome VARCHAR(64) NOT NULL,
+                provider_request_id VARCHAR(256),
                 failure_class VARCHAR(64),
                 usage_available BOOLEAN NOT NULL,
                 input_tokens BIGINT NOT NULL,

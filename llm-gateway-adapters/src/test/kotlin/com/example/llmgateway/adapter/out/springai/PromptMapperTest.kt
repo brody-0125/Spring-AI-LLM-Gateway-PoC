@@ -34,7 +34,8 @@ class PromptMapperTest : FunSpec({
 
         options.model shouldBe "gpt-test"
         options.temperature shouldBe 0.3
-        options.maxTokens shouldBe 128
+        options.maxCompletionTokens shouldBe 128
+        options.maxTokens shouldBe null
         options.topP shouldBe 0.7
         options.stop shouldBe listOf("END")
         options.streamOptions?.includeUsage() shouldBe true

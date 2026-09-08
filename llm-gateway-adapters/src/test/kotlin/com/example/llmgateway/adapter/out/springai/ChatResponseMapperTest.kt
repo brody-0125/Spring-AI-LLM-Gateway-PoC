@@ -17,6 +17,7 @@ class ChatResponseMapperTest : FunSpec({
         mapped.usage.inputTokens shouldBe 2
         mapped.usage.outputTokens shouldBe 3
         mapped.usage.totalTokens shouldBe 5
+        mapped.providerRequestId shouldBe "provider-response-1"
     }
 
     test("maps streaming finish reason and usage only when present") {
@@ -25,6 +26,7 @@ class ChatResponseMapperTest : FunSpec({
         mapped.text shouldBe "hello"
         mapped.finishReason shouldBe "stop"
         mapped.usage?.totalTokens shouldBe 5
+        mapped.providerRequestId shouldBe "provider-response-1"
 
         val withoutUsage = ChatResponseMapper.toProviderChunk(
             ChatResponse(
@@ -43,7 +45,7 @@ class ChatResponseMapperTest : FunSpec({
                     ChatGenerationMetadata.builder().finishReason("stop").build(),
                 ),
             ),
-            ChatResponseMetadata.builder().usage(DefaultUsage(2, 3, 5)).build(),
+            ChatResponseMetadata.builder().id("provider-response-1").usage(DefaultUsage(2, 3, 5)).build(),
         )
     }
 }

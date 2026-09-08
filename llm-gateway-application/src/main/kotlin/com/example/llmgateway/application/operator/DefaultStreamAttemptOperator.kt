@@ -16,6 +16,7 @@ import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.GatewayEvent
 import com.example.llmgateway.domain.model.GatewayException
+import com.example.llmgateway.domain.model.ProviderException
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.Usage
 import com.example.llmgateway.domain.model.costOf
@@ -50,6 +51,7 @@ class DefaultStreamAttemptOperator(
         var finishReason = "stop"
         var firstTokenRecorded = false
         var providerActive = true
+        var providerRequestId: String? = null
         val outputGuardrail = outputGuardrailOperator.openStream(context)
 
         try {
@@ -59,6 +61,7 @@ class DefaultStreamAttemptOperator(
             val iterator = providerChunks.iterator()
             while (deadlineOperator.execute(attempt.deadline) { iterator.hasNext() }) {
                 val chunk = deadlineOperator.execute(attempt.deadline) { iterator.next() }
+                chunk.providerRequestId?.let { providerRequestId = it }
                 chunk.usage?.let { usage = usage.mergeCumulative(it) }
                 chunk.finishReason?.let { finishReason = it }
                 outputGuardrail.inspect(chunk.text)
@@ -86,6 +89,7 @@ class DefaultStreamAttemptOperator(
             val outcome = AttemptOutcome.Success(
                 usage,
                 costCalculationOperator.calculate(deployment, usage, Instant.now()),
+                providerRequestId,
             )
             record(outcome, attempt)
             yield(
@@ -108,6 +112,7 @@ class DefaultStreamAttemptOperator(
                     failureClass = failureClass,
                     usage = usage,
                     cost = costCalculationOperator.calculate(deployment, usage, Instant.now()),
+                    providerRequestId = providerRequestId,
                 ),
                 attempt,
             )
@@ -118,6 +123,7 @@ class DefaultStreamAttemptOperator(
                 AttemptOutcome.CancelledWithUsage(
                     usage = usage,
                     cost = costCalculationOperator.calculate(deployment, usage, Instant.now()),
+                    providerRequestId = providerRequestId,
                 ),
                 attempt,
             )
@@ -130,8 +136,9 @@ class DefaultStreamAttemptOperator(
                 circuitBreaker.onFailure(deployment, failure)
             }
             val cost = costCalculationOperator.calculate(deployment, usage, Instant.now())
-            record(AttemptOutcome.Failure(failure, usage, cost), attempt)
-            throw AttemptFailureException.from(failure, error, emitted)
+            val requestId = providerRequestId
+            record(AttemptOutcome.Failure(failure, usage, cost, requestId), attempt)
+            throw AttemptFailureException.from(failure, error, emitted, requestId)
         } catch (error: Exception) {
             if (providerActive.not()) throw error
             val failure = failureClassifier.classify(error)
@@ -139,8 +146,9 @@ class DefaultStreamAttemptOperator(
                 circuitBreaker.onFailure(deployment, failure)
             }
             val cost = costCalculationOperator.calculate(deployment, usage, Instant.now())
-            record(AttemptOutcome.Failure(failure, usage, cost), attempt)
-            throw AttemptFailureException.from(failure, error, emitted)
+            val requestId = (error as? ProviderException)?.providerRequestId ?: providerRequestId
+            record(AttemptOutcome.Failure(failure, usage, cost, requestId), attempt)
+            throw AttemptFailureException.from(failure, error, emitted, requestId)
         }
     }
 

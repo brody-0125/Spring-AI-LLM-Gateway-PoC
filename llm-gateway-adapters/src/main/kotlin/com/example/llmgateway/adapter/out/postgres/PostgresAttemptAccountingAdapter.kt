@@ -42,13 +42,13 @@ class PostgresAttemptAccountingAdapter(
                     INSERT INTO llm_gateway_attempt_usage (
                         request_id, attempt_id, trace_id, attempt_sequence, caller, tenant,
                         vendor, deployment_id, model_group, provider_model, streaming,
-                        started_at, completed_at, outcome, failure_class, usage_available,
+                        started_at, completed_at, outcome, provider_request_id, failure_class, usage_available,
                         input_tokens, output_tokens, cache_read_input_tokens,
                         cache_write_input_tokens, reasoning_output_tokens,
                         input_cost_usd, output_cost_usd, cache_read_cost_usd,
                         cache_write_cost_usd, total_cost_usd, cost_status,
                         pricing_version, cost_warnings
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (request_id, attempt_id) DO NOTHING
                     """.trimIndent(),
                     context.requestId.value,
@@ -65,6 +65,7 @@ class PostgresAttemptAccountingAdapter(
                     Timestamp.from(context.startedAt),
                     Timestamp.from(Instant.now(clock)),
                     outcomeName(outcome),
+                    providerRequestId(outcome),
                     failureClass(outcome),
                     usage.available,
                     usage.inputTokens,
@@ -102,4 +103,11 @@ class PostgresAttemptAccountingAdapter(
 
     private fun failureClass(outcome: AttemptOutcome): String? =
         (outcome as? AttemptOutcome.Failure)?.failureClass?.name
+
+    private fun providerRequestId(outcome: AttemptOutcome): String? = when (outcome) {
+        is AttemptOutcome.Success -> outcome.providerRequestId
+        is AttemptOutcome.Failure -> outcome.providerRequestId
+        is AttemptOutcome.CancelledWithUsage -> outcome.providerRequestId
+        AttemptOutcome.Cancelled -> null
+    }
 }

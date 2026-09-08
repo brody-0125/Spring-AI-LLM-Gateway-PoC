@@ -16,6 +16,7 @@ import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.ProviderResponse
+import com.example.llmgateway.domain.model.ProviderException
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.costOf
 import java.time.Instant
@@ -68,6 +69,7 @@ class DefaultCompleteAttemptOperator(
                     failureClass = com.example.llmgateway.domain.model.FailureClass.CONTENT_POLICY,
                     usage = response.usage,
                     cost = costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
+                    providerRequestId = response.providerRequestId,
                 ),
                 attempt,
             )
@@ -78,6 +80,7 @@ class DefaultCompleteAttemptOperator(
         val outcome = AttemptOutcome.Success(
             response.usage,
             costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
+            response.providerRequestId,
         )
         record(outcome, attempt)
         return response
@@ -92,8 +95,9 @@ class DefaultCompleteAttemptOperator(
         if (failurePolicy.circuitBreakerEligible(failure)) {
             circuitBreaker.onFailure(deployment, failure)
         }
-        record(AttemptOutcome.Failure(failure), context)
-        return AttemptFailureException.from(failure, error)
+        val providerRequestId = (error as? ProviderException)?.providerRequestId
+        record(AttemptOutcome.Failure(failure, providerRequestId = providerRequestId), context)
+        return AttemptFailureException.from(failure, error, providerRequestId = providerRequestId)
     }
 
     private fun record(outcome: AttemptOutcome, context: AttemptContext) {

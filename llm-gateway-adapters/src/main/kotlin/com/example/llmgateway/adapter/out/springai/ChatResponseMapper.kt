@@ -13,6 +13,7 @@ internal object ChatResponseMapper {
             text = generation?.output?.text.orEmpty(),
             usage = usage.toGatewayUsage(),
             finishReason = generation?.metadata?.finishReason,
+            providerRequestId = response.metadata.id,
         )
     }
 
@@ -20,6 +21,7 @@ internal object ChatResponseMapper {
         text = response.result?.output?.text.orEmpty(),
         finishReason = response.result?.metadata?.finishReason,
         usage = response.metadata.usage.toGatewayUsage().takeIf { it.available },
+        providerRequestId = response.metadata.id,
     )
 
     private fun org.springframework.ai.chat.metadata.Usage.toGatewayUsage() = Usage(

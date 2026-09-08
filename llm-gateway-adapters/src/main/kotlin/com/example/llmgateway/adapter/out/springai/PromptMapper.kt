@@ -32,7 +32,8 @@ internal object PromptMapper {
     private fun openAiOptions(request: CanonicalChatRequest, deployment: Deployment): OpenAiChatOptions {
         val builder = OpenAiChatOptions.builder().model(deployment.model)
         request.options.temperature?.let(builder::temperature)
-        (request.options.maxCompletionTokens ?: request.options.maxTokens)?.let(builder::maxTokens)
+        request.options.maxTokens?.let(builder::maxTokens)
+        request.options.maxCompletionTokens?.let(builder::maxCompletionTokens)
         request.options.topP?.let(builder::topP)
         request.options.stop?.let(builder::stop)
         // Usage is required by the gateway for cost tracking, so it is not caller-controlled.

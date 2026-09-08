@@ -148,7 +148,7 @@ class MicrometerAttemptObserver(
         }
 
         logger.info(
-            "llm_gateway_attempt request_id={} trace_id={} attempt_id={} caller={} tenant={} vendor={} deployment={} sequence={} outcome={} duration_ms={} ttft_ms={} input_tokens={} output_tokens={} cache_read_tokens={} cache_write_tokens={} cost_usd={} cost_status={} pricing_version={} warnings={}",
+            "llm_gateway_attempt request_id={} trace_id={} attempt_id={} caller={} tenant={} vendor={} deployment={} provider_request_id={} sequence={} outcome={} duration_ms={} ttft_ms={} input_tokens={} output_tokens={} cache_read_tokens={} cache_write_tokens={} cost_usd={} cost_status={} pricing_version={} warnings={}",
             context.requestId.value,
             context.traceId ?: "-",
             context.attemptId.value,
@@ -156,6 +156,7 @@ class MicrometerAttemptObserver(
             context.tenant,
             context.deployment.vendor.name.lowercase(),
             context.deployment.id.value,
+            providerRequestIdOf(outcome) ?: "-",
             context.sequence,
             outcomeName,
             durationNanos?.let { TimeUnit.NANOSECONDS.toMillis(it) } ?: "-",
@@ -226,6 +227,13 @@ class MicrometerAttemptObserver(
         is AttemptOutcome.Failure -> outcome.failureClass.name.lowercase()
         is AttemptOutcome.CancelledWithUsage -> "cancelled"
         AttemptOutcome.Cancelled -> "cancelled"
+    }
+
+    private fun providerRequestIdOf(outcome: AttemptOutcome): String? = when (outcome) {
+        is AttemptOutcome.Success -> outcome.providerRequestId
+        is AttemptOutcome.Failure -> outcome.providerRequestId
+        is AttemptOutcome.CancelledWithUsage -> outcome.providerRequestId
+        AttemptOutcome.Cancelled -> null
     }
 
     private data class StartedObservation(
