@@ -4,7 +4,7 @@ A Spring MVC LLM gateway built on JDK 21 virtual threads and Spring AI. Clients 
 
 ## Features
 
-- OpenAI-compatible `POST /v1/chat/completions` with JSON and Server-Sent Events (SSE)
+- Provider-neutral `POST /v1/chat/completions` with JSON and Server-Sent Events (SSE)
 - Weighted round-robin routing with streaming-capability filtering
 - Bounded execution with same-deployment retry and alternative-deployment selection
 - Provider timeouts and deployment circuit breakers
@@ -92,9 +92,9 @@ PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions.
 - `POST /v1/chat/completions`: JSON response or SSE when `stream=true`
 - `GET /v3/api-docs.yaml`: OpenAPI v3 contract
 
-The source contract is [`llm-gateway-contract/src/main/resources/openapi.yaml`](llm-gateway-contract/src/main/resources/openapi.yaml). It exposes only the common provider-neutral request fields. Message content is currently limited to strings; tool calling, multimodal content, and provider-specific fields are intentionally excluded.
+The source contract is [`llm-gateway-contract/src/main/resources/openapi.yaml`](llm-gateway-contract/src/main/resources/openapi.yaml). It exposes only the common provider-neutral request fields. Message content is currently limited to strings; tool calling, multimodal content, and provider-specific fields are intentionally excluded. Streaming errors are sent as SSE events named `error`; successful streams end with `data: [DONE]`.
 
-The public contract does not expose provider cost details. Usage and cost accounting are stored internally per provider attempt, with idempotent PostgreSQL writes and versioned pricing snapshots.
+The public contract does not expose provider cost details. Usage is returned when provider metadata is available and omitted otherwise. Usage and cost accounting are stored internally per provider attempt, with idempotent PostgreSQL writes and versioned pricing snapshots.
 
 Supported request options include `temperature`, `max_tokens`, `max_completion_tokens`, `top_p`, `stop`, and `stream`. `max_tokens` and `max_completion_tokens` are mutually exclusive. Usage is always collected internally for cost tracking.
 

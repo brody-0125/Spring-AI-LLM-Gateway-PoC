@@ -11,5 +11,5 @@ data class ChatCompletionResponse(
     @param:JsonProperty("created") val created: Long,
     @param:JsonProperty("model") val model: String,
     @param:JsonProperty("choices") val choices: List<ChatChoiceDto>,
-    @param:JsonProperty("usage") val usage: UsageDto,
+    @param:JsonProperty("usage") val usage: UsageDto? = null,
 )

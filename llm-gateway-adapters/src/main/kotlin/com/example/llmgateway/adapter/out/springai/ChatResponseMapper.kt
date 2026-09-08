@@ -12,6 +12,7 @@ internal object ChatResponseMapper {
         return ProviderResponse(
             text = generation?.output?.text.orEmpty(),
             usage = usage.toGatewayUsage(),
+            finishReason = generation?.metadata?.finishReason,
         )
     }
 

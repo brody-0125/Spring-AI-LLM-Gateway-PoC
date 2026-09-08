@@ -67,6 +67,7 @@ class GatewayControllerIntegrationTest : FunSpec() {
         )
 
         response.statusCode() shouldBe HttpStatus.BAD_REQUEST.value()
+        response.body() shouldContain "\"code\":\"INVALID_REQUEST\""
         response.body() shouldContain "\"retryable\":false"
         response.body() shouldNotContain "\"category\""
     }
@@ -97,6 +98,7 @@ class GatewayControllerIntegrationTest : FunSpec() {
         response.statusCode() shouldBe HttpStatus.BAD_REQUEST.value()
         response.headers().firstValue("X-Request-Id").orElse(null) shouldBe "req-invalid-body"
         response.body() shouldContain "\"type\":\"invalid_request\""
+        response.body() shouldContain "\"code\":\"INVALID_REQUEST\""
         response.body() shouldContain "\"retryable\":false"
         response.body() shouldNotContain "\"retry_after\""
     }
@@ -160,6 +162,41 @@ class GatewayControllerIntegrationTest : FunSpec() {
         response.headers().firstValue("X-Request-Id").orElse("") shouldStartWith "req_"
     }
 
+    test("invalid request id is rejected without echoing the invalid value") {
+        val response = post(
+            body = """
+                {
+                  "model": "default",
+                  "messages": [{"role": "user", "content": "hello"}]
+                }
+            """.trimIndent(),
+            requestId = "invalid request id",
+        )
+
+        response.statusCode() shouldBe HttpStatus.BAD_REQUEST.value()
+        val responseRequestId = response.headers().firstValue("X-Request-Id").orElse("")
+        responseRequestId shouldStartWith "req_"
+        response.body() shouldContain "\"request_id\":\"$responseRequestId\""
+        response.body() shouldContain "\"type\":\"invalid_request\""
+    }
+
+    test("unexpected server failure uses a non-retryable 500 contract") {
+        val response = post(
+            body = """
+                {
+                  "model": "unexpected",
+                  "messages": [{"role": "user", "content": "hello"}]
+                }
+            """.trimIndent(),
+            requestId = "req-unexpected",
+        )
+
+        response.statusCode() shouldBe HttpStatus.INTERNAL_SERVER_ERROR.value()
+        response.body() shouldContain "\"type\":\"gateway_error\""
+        response.body() shouldContain "\"code\":\"GATEWAY_INTERNAL_ERROR\""
+        response.body() shouldContain "\"retryable\":false"
+    }
+
     test("OpenAPI contract is served from the application") {
         val response = HttpTestClient.get(port, "/v3/api-docs.yaml")
 
@@ -168,6 +205,8 @@ class GatewayControllerIntegrationTest : FunSpec() {
         response.body() shouldContain "/v1/chat/completions:"
         response.body() shouldContain "X-Request-Id"
         response.body() shouldContain "traceparent"
+        response.body() shouldContain "event named error"
+        response.body() shouldContain "ChatDelta"
         response.body() shouldNotContain "/internal/v1/routing"
         response.body() shouldNotContain "stream_options"
         response.body() shouldNotContain "frequency_penalty"
@@ -193,12 +232,17 @@ class GatewayControllerIntegrationTest : FunSpec() {
             override fun complete(
                 request: CanonicalChatRequest,
                 context: RequestContext,
-            ): GatewayResponse = GatewayResponse(
-                id = "chatcmpl-test",
-                model = "default",
-                text = "test response",
-                usage = Usage(),
-            )
+            ): GatewayResponse {
+                if (request.modelGroup.value == "unexpected") {
+                    throw IllegalStateException("test failure")
+                }
+                return GatewayResponse(
+                    id = "chatcmpl-test",
+                    model = "default",
+                    text = "test response",
+                    usage = Usage(),
+                )
+            }
 
         }
 

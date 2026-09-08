@@ -69,6 +69,7 @@ class RoutingAdminController(
             ?: throw GatewayException(
                 GatewayError(
                     type = "authentication_required",
+                    code = "CLIENT_UNAUTHORIZED",
                     category = ErrorCategory.ENTITLEMENT,
                     retryable = false,
                     message = "A valid gateway bearer token is required",
@@ -79,6 +80,7 @@ class RoutingAdminController(
             throw GatewayException(
                 GatewayError(
                     type = "administrator_required",
+                    code = "ADMINISTRATOR_REQUIRED",
                     category = ErrorCategory.ENTITLEMENT,
                     retryable = false,
                     message = "Administrator privileges are required",

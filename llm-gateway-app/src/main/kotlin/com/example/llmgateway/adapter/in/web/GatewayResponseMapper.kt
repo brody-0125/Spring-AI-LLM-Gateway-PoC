@@ -5,6 +5,7 @@ import com.example.llmgateway.contract.ChatCompletionResponse
 import com.example.llmgateway.contract.ChatMessageDto
 import com.example.llmgateway.contract.UsageDto
 import com.example.llmgateway.domain.model.GatewayResponse
+import com.example.llmgateway.domain.model.Usage
 
 internal object GatewayResponseMapper {
     fun toContract(response: GatewayResponse) = ChatCompletionResponse(
@@ -15,13 +16,17 @@ internal object GatewayResponseMapper {
             ChatChoiceDto(
                 index = 0,
                 message = ChatMessageDto(role = "assistant", content = response.text),
-                finishReason = "stop",
+                finishReason = response.finishReason ?: "stop",
             ),
         ),
-        usage = UsageDto(
-            promptTokens = response.usage.inputTokens,
-            completionTokens = response.usage.outputTokens,
-            totalTokens = response.usage.totalTokens,
-        ),
+        usage = response.usage.toUsageDtoOrNull(),
+    )
+}
+
+internal fun Usage.toUsageDtoOrNull(): UsageDto? = takeIf { available }?.let {
+    UsageDto(
+        promptTokens = inputTokens,
+        completionTokens = outputTokens,
+        totalTokens = totalTokens,
     )
 }

@@ -58,6 +58,7 @@ class GatewayServiceConfiguration {
         @Value("\${gateway.resilience.backoff.initial:100ms}") initialBackoff: Duration,
         @Value("\${gateway.resilience.backoff.multiplier:2.0}") backoffMultiplier: Double,
         @Value("\${gateway.resilience.backoff.max:2s}") maxBackoff: Duration,
+        @Value("\${gateway.resilience.per-attempt-timeout:30s}") perAttemptTimeout: Duration,
     ): AttemptPolicy = AttemptPolicy(
         failurePolicy = failurePolicy,
         maxTotalAttempts = maxTotalAttempts,
@@ -66,6 +67,7 @@ class GatewayServiceConfiguration {
         initialBackoff = initialBackoff,
         backoffMultiplier = backoffMultiplier,
         maxBackoff = maxBackoff,
+        perAttemptTimeout = perAttemptTimeout,
     )
 
     @Bean
@@ -92,6 +94,7 @@ class GatewayServiceConfiguration {
         providerInvoker: ProviderInvokerPort,
         failureClassifier: FailureClassifier,
         failurePolicy: FailurePolicy,
+        attemptPolicy: AttemptPolicy,
         attemptObserver: AttemptObserverPort,
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
@@ -104,6 +107,7 @@ class GatewayServiceConfiguration {
         deadlineOperator = deadlineOperator,
         circuitBreaker = circuitBreaker,
         failurePolicy = failurePolicy,
+        attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
         attemptAccounting = attemptAccounting,
     )
@@ -113,6 +117,7 @@ class GatewayServiceConfiguration {
         providerInvoker: ProviderInvokerPort,
         failureClassifier: FailureClassifier,
         failurePolicy: FailurePolicy,
+        attemptPolicy: AttemptPolicy,
         attemptObserver: AttemptObserverPort,
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
@@ -125,6 +130,7 @@ class GatewayServiceConfiguration {
         deadlineOperator = deadlineOperator,
         circuitBreaker = circuitBreaker,
         failurePolicy = failurePolicy,
+        attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
         attemptAccounting = attemptAccounting,
     )

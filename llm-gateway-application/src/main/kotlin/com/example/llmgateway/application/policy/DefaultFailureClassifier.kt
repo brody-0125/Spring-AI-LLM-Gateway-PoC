@@ -16,6 +16,7 @@ import javax.net.ssl.SSLException
 class DefaultFailureClassifier : FailureClassifier {
     override fun classify(error: Throwable): FailureClass {
         val cause = unwrap(error)
+        if (cause is GatewayDeadlineExceededException) return FailureClass.GATEWAY_TIMEOUT
         if (cause is GatewayException) return cause.error.category.toFailureClass()
         if (cause is ProviderException) {
             return when (cause.statusCode) {

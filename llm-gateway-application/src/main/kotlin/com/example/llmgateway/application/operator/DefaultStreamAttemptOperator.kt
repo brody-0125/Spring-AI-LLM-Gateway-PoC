@@ -2,6 +2,8 @@ package com.example.llmgateway.application.operator
 
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
+import com.example.llmgateway.application.policy.AttemptPolicy
+import com.example.llmgateway.application.policy.GatewayDeadlineExceededException
 import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
@@ -17,6 +19,7 @@ import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.Usage
 import com.example.llmgateway.domain.model.costOf
 import java.time.Instant
+import java.util.concurrent.TimeoutException
 import java.util.UUID
 
 class DefaultStreamAttemptOperator(
@@ -26,6 +29,7 @@ class DefaultStreamAttemptOperator(
     private val deadlineOperator: VirtualThreadDeadlineOperator,
     private val circuitBreaker: CircuitBreakerPort,
     private val failurePolicy: FailurePolicy,
+    private val attemptPolicy: AttemptPolicy = AttemptPolicy(failurePolicy),
     private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
     private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
 ) : StreamAttemptOperator {
@@ -46,12 +50,12 @@ class DefaultStreamAttemptOperator(
         var providerActive = true
 
         try {
-            val providerChunks = deadlineOperator.execute(context.deadline) {
-                providerInvoker.stream(deployment, request)
+            val providerChunks = deadlineOperator.execute(attempt.deadline) {
+                providerInvoker.stream(deployment, request, attempt)
             }
             val iterator = providerChunks.iterator()
-            while (deadlineOperator.execute(context.deadline) { iterator.hasNext() }) {
-                val chunk = deadlineOperator.execute(context.deadline) { iterator.next() }
+            while (deadlineOperator.execute(attempt.deadline) { iterator.hasNext() }) {
+                val chunk = deadlineOperator.execute(attempt.deadline) { iterator.next() }
                 emitted = true
                 if (chunk.text.isNotEmpty() && !firstTokenRecorded) {
                     firstTokenRecorded = true
@@ -101,6 +105,15 @@ class DefaultStreamAttemptOperator(
             throw error
         } catch (error: AttemptAccountingException) {
             throw error
+        } catch (error: TimeoutException) {
+            if (providerActive.not()) throw error
+            val failure = failureClassifier.classify(error.asGatewayDeadlineFailure(context))
+            if (failurePolicy.circuitBreakerEligible(failure)) {
+                circuitBreaker.onFailure(deployment, failure)
+            }
+            val cost = costCalculationOperator.calculate(deployment, usage, Instant.now())
+            record(AttemptOutcome.Failure(failure, usage, cost), attempt)
+            throw AttemptFailureException.from(failure, error, emitted)
         } catch (error: Exception) {
             if (providerActive.not()) throw error
             val failure = failureClassifier.classify(error)
@@ -126,16 +139,23 @@ class DefaultStreamAttemptOperator(
         context: RequestContext,
         deployment: Deployment,
         attemptSequence: Int,
-    ) = AttemptContext(
-        requestId = context.requestId,
-        attemptId = AttemptId("att_${UUID.randomUUID()}"),
-        sequence = attemptSequence,
-        deployment = deployment,
-        caller = context.caller,
-        tenant = context.tenant,
-        traceId = context.traceId,
-        streaming = true,
-        startedAt = Instant.now(),
-    )
+    ): AttemptContext {
+        val startedAt = Instant.now()
+        return AttemptContext(
+            requestId = context.requestId,
+            attemptId = AttemptId("att_${UUID.randomUUID()}"),
+            sequence = attemptSequence,
+            deployment = deployment,
+            caller = context.caller,
+            tenant = context.tenant,
+            traceId = context.traceId,
+            streaming = true,
+            startedAt = startedAt,
+            deadline = attemptPolicy.deadlineFor(context.deadline, startedAt),
+        )
+    }
+
+    private fun TimeoutException.asGatewayDeadlineFailure(context: RequestContext): Exception =
+        if (Instant.now().isBefore(context.deadline)) this else GatewayDeadlineExceededException(this)
 
 }

@@ -3,6 +3,7 @@ package com.example.llmgateway.application.policy
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.RequestDisposition
 import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.ThreadLocalRandom
 
 class AttemptPolicy(
@@ -13,6 +14,7 @@ class AttemptPolicy(
     private val initialBackoff: Duration = Duration.ofMillis(100),
     private val backoffMultiplier: Double = 2.0,
     private val maxBackoff: Duration = Duration.ofSeconds(2),
+    private val perAttemptTimeout: Duration = Duration.ofSeconds(30),
     private val sleeper: (Duration) -> Unit = { delay ->
         Thread.sleep(delay.toMillis())
     },
@@ -28,9 +30,15 @@ class AttemptPolicy(
         require(backoffMultiplier >= 1.0) { "backoffMultiplier must be at least 1" }
         require(!maxBackoff.isNegative) { "maxBackoff must not be negative" }
         require(initialBackoff <= maxBackoff) { "initialBackoff must not exceed maxBackoff" }
+        require(!perAttemptTimeout.isZero && !perAttemptTimeout.isNegative) {
+            "perAttemptTimeout must be positive"
+        }
     }
 
     fun newBudget(): AttemptBudget = AttemptBudget(maxTotalAttempts, maxFallbacks)
+
+    fun deadlineFor(requestDeadline: Instant, startedAt: Instant): Instant =
+        minOf(requestDeadline, startedAt.plus(perAttemptTimeout))
 
     fun canRetrySameDeployment(
         failureClass: FailureClass,

@@ -293,7 +293,8 @@ class GatewayApplicationTest : FunSpec() {
             val error = shouldThrow<GatewayException> {
                 gateway.command.stream(request(stream = true), expiredContext).toList()
             }
-            error.error.type shouldBe "provider_unavailable"
+            error.error.type shouldBe "gateway_timeout"
+            error.error.code shouldBe "GATEWAY_TIMEOUT"
             invoker.streamCalls shouldHaveSize 0
         }
 
@@ -310,6 +311,7 @@ class GatewayApplicationTest : FunSpec() {
             }
 
             error.error.type shouldBe "gateway_rate_limited"
+            error.error.code shouldBe "RATE_LIMITED"
             error.error.retryAfterSeconds shouldBe 4
         }
 
@@ -425,6 +427,7 @@ private class FakeInvoker(
     override fun complete(
         deployment: Deployment,
         request: CanonicalChatRequest,
+        attempt: AttemptContext,
     ): ProviderResponse {
         completeCalls += deployment.id.value
         return complete(deployment)
@@ -433,6 +436,7 @@ private class FakeInvoker(
     override fun stream(
         deployment: Deployment,
         request: CanonicalChatRequest,
+        attempt: AttemptContext,
     ): Sequence<ProviderChunk> {
         streamCalls += deployment.id.value
         return stream(deployment)

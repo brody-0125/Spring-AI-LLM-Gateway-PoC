@@ -69,6 +69,7 @@ gateway:
     max-total-attempts: ${GATEWAY_MAX_TOTAL_ATTEMPTS:3}
     max-retries-per-deployment: ${GATEWAY_MAX_RETRIES_PER_DEPLOYMENT:1}
     max-fallbacks: ${GATEWAY_MAX_FALLBACKS:2}
+    per-attempt-timeout: ${GATEWAY_PER_ATTEMPT_TIMEOUT:30s}
     backoff:
       initial: ${GATEWAY_RETRY_BACKOFF_INITIAL:100ms}
       multiplier: ${GATEWAY_RETRY_BACKOFF_MULTIPLIER:2.0}

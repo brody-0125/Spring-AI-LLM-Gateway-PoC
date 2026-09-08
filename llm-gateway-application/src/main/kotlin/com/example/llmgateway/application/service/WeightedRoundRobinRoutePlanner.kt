@@ -43,6 +43,7 @@ class WeightedRoundRobinRoutePlanner(
             throw GatewayException(
                 GatewayError(
                     type = "no_available_deployment",
+                    code = "LLM_UNAVAILABLE",
                     category = ErrorCategory.TRANSIENT,
                     retryable = true,
                     message = "No enabled deployment is available for model group '${request.modelGroup.value}'",

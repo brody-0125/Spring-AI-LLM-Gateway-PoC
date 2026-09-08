@@ -3,7 +3,7 @@ info:
   title: LLM Gateway Public Client API
   version: 0.1.0
   description: >-
-    OpenAI-compatible chat completion contract for BFF and domain backend clients.
+    Provider-neutral chat completion contract for BFF and domain backend clients.
     The internal routing control plane is deliberately excluded from this public contract.
 servers:
   - url: http://localhost:8080
@@ -24,7 +24,7 @@ paths:
               $ref: '#/components/schemas/ChatCompletionRequest'
       responses:
         '200':
-          description: Completed JSON response or Server-Sent Events when stream is true.
+          description: Completed JSON response or Server-Sent Events when stream is true. After an SSE response starts, errors are delivered as an event named error.
           headers:
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
@@ -35,17 +35,23 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Each event contains a JSON ChatCompletionChunk; the stream ends with data: [DONE].
+                description: Normal events contain a JSON ChatCompletionChunk. Error events use event: error and contain ErrorResponse. Successful streams end with data: [DONE].
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/GatewayError'
         '503':
           $ref: '#/components/responses/GatewayError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 components:
   securitySchemes:
     bearerAuth:
@@ -60,6 +66,8 @@ components:
       schema:
         type: string
         minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
     Traceparent:
       name: traceparent
       in: header
@@ -98,6 +106,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The authenticated client is not allowed to use the requested gateway capability.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnprocessableEntity:
+      description: The request was rejected by a gateway policy.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     RateLimited:
       description: Gateway or provider rate limit.
       headers:
@@ -114,6 +140,19 @@ components:
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    GatewayTimeout:
+      description: The gateway deadline expired before a complete response was produced.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
       content:
         application/json:
           schema:
@@ -170,7 +209,7 @@ components:
     ChatCompletionResponse:
       type: object
       additionalProperties: false
-      required: [id, object, created, model, choices, usage]
+      required: [id, object, created, model, choices]
       properties:
         id:
           type: string
@@ -184,11 +223,15 @@ components:
           type: string
           description: Logical model group requested by the client.
         choices:
+          minItems: 1
+          maxItems: 1
           type: array
           items:
             $ref: '#/components/schemas/ChatChoice'
         usage:
-          $ref: '#/components/schemas/Usage'
+          description: Provider usage metadata; omitted when the provider does not return usage data.
+          allOf:
+            - $ref: '#/components/schemas/Usage'
     ChatCompletionChunk:
       type: object
       additionalProperties: false
@@ -201,11 +244,14 @@ components:
           type: string
           description: Logical model group requested by the client.
         choices:
+          minItems: 1
           type: array
           items:
             $ref: '#/components/schemas/ChatChunkChoice'
         usage:
-          $ref: '#/components/schemas/Usage'
+          description: Provider usage metadata when available; omitted otherwise.
+          allOf:
+            - $ref: '#/components/schemas/Usage'
     ChatChoice:
       type: object
       additionalProperties: false
@@ -220,7 +266,7 @@ components:
       required: [index, delta]
       properties:
         index: { type: integer }
-        delta: { $ref: '#/components/schemas/ChatMessage' }
+        delta: { $ref: '#/components/schemas/ChatDelta' }
         finish_reason: { type: string, nullable: true }
     Usage:
       type: object
@@ -230,6 +276,16 @@ components:
         prompt_tokens: { type: integer, format: int64, minimum: 0 }
         completion_tokens: { type: integer, format: int64, minimum: 0 }
         total_tokens: { type: integer, format: int64, minimum: 0 }
+    ChatDelta:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [assistant]
+        content:
+          type: string
+          nullable: true
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -239,10 +295,11 @@ components:
     GatewayError:
       type: object
       additionalProperties: false
-      required: [type, message, retryable, request_id]
+      required: [type, code, message, retryable, request_id]
       properties:
         type: { type: string }
+        code: { type: string }
         message: { type: string }
         retryable: { type: boolean }
         request_id: { type: string }
-        retry_after: { type: integer, format: int64, minimum: 0 }
+        retry_after_seconds: { type: integer, format: int64, minimum: 0 }

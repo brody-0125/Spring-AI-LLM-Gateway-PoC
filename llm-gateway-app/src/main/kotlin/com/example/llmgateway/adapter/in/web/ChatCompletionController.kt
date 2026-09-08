@@ -55,6 +55,7 @@ class ChatCompletionController(
             ?: throw GatewayException(
                 GatewayError(
                     type = "authentication_required",
+                    code = "CLIENT_UNAUTHORIZED",
                     category = ErrorCategory.ENTITLEMENT,
                     retryable = false,
                     message = "A valid gateway bearer token is required",

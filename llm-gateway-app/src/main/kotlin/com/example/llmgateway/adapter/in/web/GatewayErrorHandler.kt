@@ -2,6 +2,7 @@ package com.example.llmgateway.adapter.`in`.web
 
 import com.example.llmgateway.contract.ErrorResponseDto
 import com.example.llmgateway.contract.GatewayErrorDto
+import com.example.llmgateway.core.primitive.RequestId
 import com.example.llmgateway.domain.model.ErrorCategory
 import com.example.llmgateway.domain.model.GatewayException
 import jakarta.servlet.http.HttpServletRequest
@@ -18,11 +19,13 @@ class GatewayErrorHandler {
     @ExceptionHandler(GatewayException::class)
     fun handle(error: GatewayException): ResponseEntity<ErrorResponseDto> {
         val status = when (error.error.category) {
-            ErrorCategory.CALLER_FIXABLE -> 400
+            ErrorCategory.CALLER_FIXABLE -> if (error.error.type == "guardrail_rejected") 422 else 400
             ErrorCategory.ENTITLEMENT -> if (error.error.type == "authentication_required") 401 else 403
-            ErrorCategory.TRANSIENT -> if (
-                error.error.type == "rate_limited" || error.error.type == "gateway_rate_limited"
-            ) 429 else 503
+            ErrorCategory.TRANSIENT -> when (error.error.type) {
+                "rate_limited", "gateway_rate_limited" -> 429
+                "gateway_timeout" -> 504
+                else -> 503
+            }
             ErrorCategory.GATEWAY_FAULT -> if (error.error.type == "routing_unavailable") 503 else 500
         }
         val response = ResponseEntity.status(status)
@@ -46,19 +49,22 @@ class GatewayErrorHandler {
         badRequest("Invalid request", request.requestId())
 
     @ExceptionHandler(Exception::class)
-    fun handleUnexpected(error: Exception, request: HttpServletRequest): ResponseEntity<ErrorResponseDto> =
-        ResponseEntity.internalServerError()
-            .header("X-Request-Id", request.requestId())
+    fun handleUnexpected(error: Exception, request: HttpServletRequest): ResponseEntity<ErrorResponseDto> {
+        val requestId = request.requestId()
+        return ResponseEntity.internalServerError()
+            .header("X-Request-Id", requestId)
             .body(
                 ErrorResponseDto(
                     GatewayErrorDto(
                         type = "gateway_error",
+                        code = "GATEWAY_INTERNAL_ERROR",
                         message = "The gateway failed to process the request",
-                        retryable = true,
-                        requestId = request.requestId(),
+                        retryable = false,
+                        requestId = requestId,
                     ),
                 ),
             )
+    }
 
     private fun badRequest(message: String, requestId: String): ResponseEntity<ErrorResponseDto> =
         ResponseEntity.badRequest()
@@ -67,6 +73,7 @@ class GatewayErrorHandler {
                 ErrorResponseDto(
                     GatewayErrorDto(
                         type = "invalid_request",
+                        code = "INVALID_REQUEST",
                         message = message,
                         retryable = false,
                         requestId = requestId,
@@ -76,10 +83,14 @@ class GatewayErrorHandler {
 }
 
 private fun HttpServletRequest.requestId(): String =
-    getHeader("X-Request-Id")?.takeIf(String::isNotBlank) ?: "req_${UUID.randomUUID()}"
+    getHeader("X-Request-Id")
+        ?.takeIf(String::isNotBlank)
+        ?.let { runCatching { RequestId(it).value }.getOrNull() }
+        ?: "req_${UUID.randomUUID()}"
 
 private fun com.example.llmgateway.domain.model.GatewayError.toContract() = GatewayErrorDto(
     type = type,
+    code = code,
     message = message,
     retryable = retryable,
     requestId = requestId.value,

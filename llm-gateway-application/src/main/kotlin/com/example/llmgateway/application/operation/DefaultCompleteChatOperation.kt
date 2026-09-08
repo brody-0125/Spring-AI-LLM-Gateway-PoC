@@ -33,7 +33,7 @@ class DefaultCompleteChatOperation(
         while (budget.attempts < attemptPolicy.maxTotalAttempts) {
             if (remaining(context).isZero || remaining(context).isNegative) {
                 throw lastFailure?.let { terminalError(context, it) }
-                    ?: errorFactory.from(context, FailureClass.TRANSIENT, TimeoutException("Gateway deadline exceeded"))
+                    ?: errorFactory.gatewayTimeout(context, TimeoutException("Gateway deadline exceeded"))
             }
             val deployment = plan.candidates.firstOrNull { it.id !in excluded }
                 ?: break
@@ -119,4 +119,5 @@ private fun com.example.llmgateway.domain.model.ProviderResponse.toGatewayRespon
     text = text,
     usage = usage,
     createdAtEpochSeconds = Instant.now().epochSecond,
+    finishReason = finishReason ?: "stop",
 )

@@ -8,4 +8,5 @@ data class GatewayResponse(
     val text: String,
     val usage: Usage,
     val createdAtEpochSeconds: Long = Instant.now().epochSecond,
+    val finishReason: String? = null,
 )

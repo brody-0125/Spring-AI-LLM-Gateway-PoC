@@ -5,6 +5,7 @@ import com.example.llmgateway.core.primitive.RequestId
 
 data class GatewayError(
     val type: String,
+    val code: String,
     val category: ErrorCategory,
     val retryable: Boolean,
     val message: String,

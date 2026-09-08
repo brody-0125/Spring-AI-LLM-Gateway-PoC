@@ -9,6 +9,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import java.time.Duration
+import java.time.Instant
 
 class AttemptPolicyTest : FunSpec({
     test("attempt budget limits total attempts and fallbacks") {
@@ -72,5 +73,16 @@ class AttemptPolicyTest : FunSpec({
         delay.shouldNotBeNull()
         delay shouldBe Duration.ofMillis(400)
         policy.delay(failure.retryAfter, retryIndex = 0, remaining = Duration.ofMillis(300)) shouldBe null
+    }
+
+    test("attempt deadline is capped by both request and per-attempt deadlines") {
+        val policy = AttemptPolicy(
+            failurePolicy = FailurePolicy(),
+            perAttemptTimeout = Duration.ofSeconds(5),
+        )
+        val startedAt = Instant.parse("2026-01-01T00:00:00Z")
+
+        policy.deadlineFor(startedAt.plusSeconds(30), startedAt) shouldBe startedAt.plusSeconds(5)
+        policy.deadlineFor(startedAt.plusSeconds(2), startedAt) shouldBe startedAt.plusSeconds(2)
     }
 })

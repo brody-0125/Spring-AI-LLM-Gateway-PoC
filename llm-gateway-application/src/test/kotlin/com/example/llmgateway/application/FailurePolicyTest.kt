@@ -2,6 +2,7 @@ package com.example.llmgateway.application
 
 import com.example.llmgateway.application.policy.DefaultFailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
+import com.example.llmgateway.application.policy.GatewayDeadlineExceededException
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.ProviderException
 import com.example.llmgateway.core.primitive.Vendor
@@ -22,6 +23,9 @@ class FailurePolicyTest : FunSpec({
         policy.circuitBreakerEligible(FailureClass.CONTEXT_WINDOW) shouldBe false
         policy.clientRetryable(FailureClass.CONTEXT_WINDOW) shouldBe false
         policy.clientRetryable(FailureClass.RATE_LIMITED) shouldBe true
+        policy.clientRetryable(FailureClass.GATEWAY_TIMEOUT) shouldBe true
+        policy.errorType(FailureClass.GATEWAY_TIMEOUT) shouldBe "gateway_timeout"
+        policy.errorCode(FailureClass.GATEWAY_TIMEOUT) shouldBe "GATEWAY_TIMEOUT"
     }
 
     test("failure classifier maps provider status and wrapped timeout errors") {
@@ -37,5 +41,7 @@ class FailurePolicyTest : FunSpec({
             FailureClass.INVALID_REQUEST
         classifier.classify(CompletionException(TimeoutException("timed out"))) shouldBe FailureClass.TRANSIENT
         classifier.classify(SocketTimeoutException("timed out")) shouldBe FailureClass.TRANSIENT
+        classifier.classify(GatewayDeadlineExceededException(TimeoutException("deadline"))) shouldBe
+            FailureClass.GATEWAY_TIMEOUT
     }
 })

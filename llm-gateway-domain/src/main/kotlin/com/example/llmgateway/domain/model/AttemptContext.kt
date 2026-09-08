@@ -15,4 +15,5 @@ data class AttemptContext(
     val traceId: String? = null,
     val streaming: Boolean = false,
     val startedAt: Instant = Instant.now(),
+    val deadline: Instant = Instant.now().plusSeconds(60),
 )

@@ -19,6 +19,7 @@ class GatewayErrorFactory(
         GatewayException(
             error = GatewayError(
                 type = failurePolicy.errorType(failure),
+                code = failurePolicy.errorCode(failure),
                 category = failurePolicy.category(failure),
                 retryable = failurePolicy.clientRetryable(failure),
                 message = failurePolicy.clientMessage(failure),
@@ -33,6 +34,7 @@ class GatewayErrorFactory(
         GatewayException(
             error = GatewayError(
                 type = "routing_unavailable",
+                code = "ROUTING_UNAVAILABLE",
                 category = ErrorCategory.GATEWAY_FAULT,
                 retryable = true,
                 message = "The gateway could not determine an available deployment",
@@ -49,6 +51,7 @@ class GatewayErrorFactory(
         GatewayException(
             error = GatewayError(
                 type = failurePolicy.errorType(failure),
+                code = failurePolicy.errorCode(failure),
                 category = failurePolicy.category(failure),
                 retryable = failurePolicy.clientRetryable(failure),
                 message = message,
@@ -60,6 +63,7 @@ class GatewayErrorFactory(
         GatewayException(
             GatewayError(
                 type = "gateway_rate_limited",
+                code = "RATE_LIMITED",
                 category = ErrorCategory.TRANSIENT,
                 retryable = true,
                 message = "The gateway rate limit was exceeded",
@@ -72,10 +76,14 @@ class GatewayErrorFactory(
         GatewayException(
             GatewayError(
                 type = "guardrail_rejected",
+                code = "POLICY_BLOCKED",
                 category = ErrorCategory.CALLER_FIXABLE,
                 retryable = false,
                 message = reason ?: "The request was rejected by a gateway guardrail",
                 requestId = context.requestId,
             ),
         )
+
+    fun gatewayTimeout(context: RequestContext, cause: Throwable): GatewayException =
+        from(context, FailureClass.GATEWAY_TIMEOUT, cause)
 }

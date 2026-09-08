@@ -2,6 +2,8 @@ package com.example.llmgateway.application.operator
 
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
+import com.example.llmgateway.application.policy.AttemptPolicy
+import com.example.llmgateway.application.policy.GatewayDeadlineExceededException
 import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
@@ -16,6 +18,7 @@ import com.example.llmgateway.domain.model.ProviderResponse
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.costOf
 import java.time.Instant
+import java.util.concurrent.TimeoutException
 import java.util.UUID
 
 class DefaultCompleteAttemptOperator(
@@ -25,6 +28,7 @@ class DefaultCompleteAttemptOperator(
     private val deadlineOperator: VirtualThreadDeadlineOperator,
     private val circuitBreaker: CircuitBreakerPort,
     private val failurePolicy: FailurePolicy,
+    private val attemptPolicy: AttemptPolicy = AttemptPolicy(failurePolicy),
     private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
     private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
 ) : CompleteAttemptOperator {
@@ -38,13 +42,15 @@ class DefaultCompleteAttemptOperator(
         val attempt = attemptContext(context, deployment, attemptSequence)
         attemptObserver.onStart(attempt)
         val response = try {
-            deadlineOperator.execute(context.deadline) {
-                providerInvoker.complete(deployment, request)
+            deadlineOperator.execute(attempt.deadline) {
+                providerInvoker.complete(deployment, request, attempt)
             }
         } catch (error: InterruptedException) {
             record(AttemptOutcome.Cancelled, attempt)
             Thread.currentThread().interrupt()
             throw error
+        } catch (error: TimeoutException) {
+            throw providerFailure(error.asGatewayDeadlineFailure(context), attempt, deployment)
         } catch (error: Exception) {
             throw providerFailure(error, attempt, deployment)
         }
@@ -88,14 +94,21 @@ class DefaultCompleteAttemptOperator(
         context: RequestContext,
         deployment: Deployment,
         attemptSequence: Int,
-    ) = AttemptContext(
-        requestId = context.requestId,
-        attemptId = AttemptId("att_${UUID.randomUUID()}"),
-        sequence = attemptSequence,
-        deployment = deployment,
-        caller = context.caller,
-        tenant = context.tenant,
-        traceId = context.traceId,
-        startedAt = Instant.now(),
-    )
+    ): AttemptContext {
+        val startedAt = Instant.now()
+        return AttemptContext(
+            requestId = context.requestId,
+            attemptId = AttemptId("att_${UUID.randomUUID()}"),
+            sequence = attemptSequence,
+            deployment = deployment,
+            caller = context.caller,
+            tenant = context.tenant,
+            traceId = context.traceId,
+            startedAt = startedAt,
+            deadline = attemptPolicy.deadlineFor(context.deadline, startedAt),
+        )
+    }
+
+    private fun TimeoutException.asGatewayDeadlineFailure(context: RequestContext): Exception =
+        if (Instant.now().isBefore(context.deadline)) this else GatewayDeadlineExceededException(this)
 }
