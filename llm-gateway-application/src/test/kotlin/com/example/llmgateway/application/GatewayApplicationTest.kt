@@ -301,7 +301,7 @@ class GatewayApplicationTest : FunSpec() {
         test("request admission rejects gateway rate limit before guardrail and provider work") {
             val policy = FailurePolicy()
             val admission = com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator(
-                rateLimiter = RateLimiterPort { RateLimitDecision(allowed = false, retryAfterSeconds = 4) },
+                rateLimiter = RateLimiterPort { _, _ -> RateLimitDecision(allowed = false, retryAfterSeconds = 4) },
                 guardrail = GuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
                 errorFactory = GatewayErrorFactory(policy),
             )
@@ -315,9 +315,28 @@ class GatewayApplicationTest : FunSpec() {
             error.error.retryAfterSeconds shouldBe 4
         }
 
+        test("request admission exposes a rate-limit backend outage as retryable service unavailability") {
+            val policy = FailurePolicy()
+            val admission = com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator(
+                rateLimiter = RateLimiterPort { _, _ ->
+                    RateLimitDecision(allowed = false, retryAfterSeconds = 1, backendAvailable = false)
+                },
+                guardrail = GuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
+                errorFactory = GatewayErrorFactory(policy),
+            )
+
+            val error = shouldThrow<GatewayException> {
+                admission.execute(request(), context())
+            }
+
+            error.error.type shouldBe "rate_limit_unavailable"
+            error.error.code shouldBe "RATE_LIMIT_BACKEND_UNAVAILABLE"
+            error.error.retryable shouldBe true
+        }
+
         test("request admission rejects guardrail decision after rate limit admission") {
             val admission = com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator(
-                rateLimiter = RateLimiterPort { RateLimitDecision.ALLOWED },
+                rateLimiter = RateLimiterPort { _, _ -> RateLimitDecision.ALLOWED },
                 guardrail = GuardrailPort { _, _ -> GuardrailDecision(false, "blocked by test") },
                 errorFactory = GatewayErrorFactory(FailurePolicy()),
             )

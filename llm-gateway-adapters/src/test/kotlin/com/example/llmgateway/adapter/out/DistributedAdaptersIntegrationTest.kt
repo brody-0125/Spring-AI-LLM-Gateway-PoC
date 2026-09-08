@@ -75,9 +75,9 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
             val second = RedisTokenBucketRateLimiter(redisTemplate(), true, 60, 1, "test-rate", Duration.ofMinutes(1))
             val context = RequestContext(RequestId("req"), caller = "bff", tenant = "tenant")
 
-            first.check(context).allowed shouldBe true
-            second.check(context).allowed shouldBe false
-            second.check(context).retryAfterSeconds shouldBe 1
+            first.check(context, request).allowed shouldBe true
+            second.check(context, request).allowed shouldBe false
+            second.check(context, request).retryAfterSeconds shouldBe 1
         }
 
         test("Redis rate limit remains atomic under concurrent callers").config(enabled = enabled) {
@@ -96,6 +96,7 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 executor.submit<Boolean> {
                     limiters[index % limiters.size].check(
                         RequestContext(RequestId("req-$index"), caller = "bff", tenant = "tenant"),
+                        request,
                     ).allowed
                 }
             }
@@ -475,5 +476,10 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
         dialect = Dialect.OPENAI,
         modelGroup = ModelGroup("default"),
         model = "gpt-test",
+    )
+
+    private val request = CanonicalChatRequest(
+        modelGroup = ModelGroup("default"),
+        messages = listOf(CanonicalMessage(MessageRole.USER, "hello")),
     )
 }

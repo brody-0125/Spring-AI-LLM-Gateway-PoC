@@ -3,6 +3,9 @@ package com.example.llmgateway.adapter.out.redis
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.FailureClass
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.script.DefaultRedisScript
 import java.nio.charset.StandardCharsets
@@ -17,8 +20,10 @@ class RedisCircuitBreakerAdapter(
     private val openDuration: Duration,
     private val keyPrefix: String,
     private val stateTtl: Duration,
+    private val meterRegistry: MeterRegistry? = null,
 ) : CircuitBreakerPort {
 
+    private val logger = LoggerFactory.getLogger(javaClass)
     private val allowScript = DefaultRedisScript<Long>(ALLOW_SCRIPT, Long::class.java)
     private val successScript = DefaultRedisScript<Long>(SUCCESS_SCRIPT, Long::class.java)
     private val failureScript = DefaultRedisScript<Long>(FAILURE_SCRIPT, Long::class.java)
@@ -33,23 +38,36 @@ class RedisCircuitBreakerAdapter(
 
     override fun allow(deployment: Deployment): Boolean {
         if (!enabled) return true
-        return execute(allowScript, deployment.id.value, stateTtl.seconds.coerceAtLeast(1).toString()) > 0
+        return try {
+            execute(allowScript, deployment.id.value, stateTtl.seconds.coerceAtLeast(1).toString()) > 0
+        } catch (error: Exception) {
+            recordBackendFailure(deployment, "allow", error)
+            true
+        }
     }
 
     override fun onSuccess(deployment: Deployment) {
         if (!enabled) return
-        execute(successScript, deployment.id.value, "")
+        try {
+            execute(successScript, deployment.id.value, "")
+        } catch (error: Exception) {
+            recordBackendFailure(deployment, "success", error)
+        }
     }
 
     override fun onFailure(deployment: Deployment, failure: FailureClass) {
         if (!enabled) return
-        execute(
-            failureScript,
-            deployment.id.value,
-            failureThreshold.toString(),
-            openDuration.toMillis().coerceAtLeast(1).toString(),
-            stateTtl.seconds.coerceAtLeast(1).toString(),
-        )
+        try {
+            execute(
+                failureScript,
+                deployment.id.value,
+                failureThreshold.toString(),
+                openDuration.toMillis().coerceAtLeast(1).toString(),
+                stateTtl.seconds.coerceAtLeast(1).toString(),
+            )
+        } catch (error: Exception) {
+            recordBackendFailure(deployment, "failure", error)
+        }
     }
 
     private fun execute(script: DefaultRedisScript<Long>, deploymentId: String, vararg arguments: String): Long =
@@ -57,6 +75,22 @@ class RedisCircuitBreakerAdapter(
             ?: throw IllegalStateException("Redis circuit-breaker script returned no result")
 
     private fun key(deploymentId: String): String = "$keyPrefix:${sha256(deploymentId)}"
+
+    private fun recordBackendFailure(deployment: Deployment, operation: String, error: Exception) {
+        meterRegistry?.let {
+            Counter.builder("llm.gateway.circuit_breaker.backend.failure")
+                .description("Circuit-breaker backend operations that failed")
+                .tags("operation", operation)
+                .register(it)
+                .increment()
+        }
+        logger.warn(
+            "llm_gateway_circuit_backend_failed deployment_id={} operation={} error_type={}",
+            deployment.id.value,
+            operation,
+            error.javaClass.simpleName,
+        )
+    }
 
     private fun sha256(value: String): String = HexFormat.of().formatHex(
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8)),

@@ -72,6 +72,20 @@ class GatewayErrorFactory(
             ),
         )
 
+    fun rateLimitUnavailable(context: RequestContext, cause: Throwable?): GatewayException =
+        GatewayException(
+            GatewayError(
+                type = "rate_limit_unavailable",
+                code = "RATE_LIMIT_BACKEND_UNAVAILABLE",
+                category = ErrorCategory.TRANSIENT,
+                retryable = true,
+                message = "The gateway rate-limit service is temporarily unavailable",
+                requestId = context.requestId,
+                retryAfterSeconds = 1,
+            ),
+            cause,
+        )
+
     fun guardrailRejected(context: RequestContext, reason: String?): GatewayException =
         GatewayException(
             GatewayError(

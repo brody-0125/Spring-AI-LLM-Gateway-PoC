@@ -12,7 +12,14 @@ class DefaultRequestAdmissionOperator(
     private val errorFactory: GatewayErrorFactory,
 ) : RequestAdmissionOperator {
     override fun execute(request: CanonicalChatRequest, context: RequestContext) {
-        val rateLimit = rateLimiter.check(context)
+        val rateLimit = try {
+            rateLimiter.check(context, request)
+        } catch (error: Exception) {
+            throw errorFactory.rateLimitUnavailable(context, error)
+        }
+        if (!rateLimit.backendAvailable) {
+            throw errorFactory.rateLimitUnavailable(context, null)
+        }
         if (!rateLimit.allowed) {
             throw errorFactory.rateLimited(context, rateLimit.retryAfterSeconds)
         }

@@ -1,8 +1,12 @@
 package com.example.llmgateway.adapter.out.redis
 
 import com.example.llmgateway.application.port.out.RateLimiterPort
+import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.RateLimitDecision
 import com.example.llmgateway.domain.model.RequestContext
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.script.DefaultRedisScript
 import java.nio.charset.StandardCharsets
@@ -17,8 +21,10 @@ class RedisTokenBucketRateLimiter(
     private val burst: Int,
     private val keyPrefix: String,
     private val stateTtl: Duration,
+    private val meterRegistry: MeterRegistry? = null,
 ) : RateLimiterPort {
 
+    private val logger = LoggerFactory.getLogger(javaClass)
     private val script = DefaultRedisScript<Long>(SCRIPT, Long::class.java)
 
     init {
@@ -28,16 +34,21 @@ class RedisTokenBucketRateLimiter(
         require(keyPrefix.isNotBlank()) { "keyPrefix must not be blank" }
     }
 
-    override fun check(context: RequestContext): RateLimitDecision {
+    override fun check(context: RequestContext, request: CanonicalChatRequest): RateLimitDecision {
         if (!enabled) return RateLimitDecision.ALLOWED
 
-        val result = redisTemplate.execute(
-            script,
-            listOf(key(context)),
-            requestsPerMinute.toString(),
-            burst.toString(),
-            stateTtl.seconds.coerceAtLeast(1).toString(),
-        ) ?: throw IllegalStateException("Redis rate-limit script returned no result")
+        val result = try {
+            redisTemplate.execute(
+                script,
+                listOf(key(context, request)),
+                requestsPerMinute.toString(),
+                burst.toString(),
+                stateTtl.seconds.coerceAtLeast(1).toString(),
+            ) ?: throw IllegalStateException("Redis rate-limit script returned no result")
+        } catch (error: Exception) {
+            recordBackendFailure(context, error)
+            return RateLimitDecision(allowed = false, retryAfterSeconds = 1, backendAvailable = false)
+        }
 
         return if (result > 0) {
             RateLimitDecision.ALLOWED
@@ -49,8 +60,22 @@ class RedisTokenBucketRateLimiter(
         }
     }
 
-    private fun key(context: RequestContext): String =
-        "$keyPrefix:${sha256("${context.tenant}:${context.caller}")}"
+    private fun key(context: RequestContext, request: CanonicalChatRequest): String =
+        "$keyPrefix:${sha256("${context.tenant}:${context.caller}:${request.modelGroup.value}")}"
+
+    private fun recordBackendFailure(context: RequestContext, error: Exception) {
+        meterRegistry?.let {
+            Counter.builder("llm.gateway.rate_limit.backend.failure")
+                .description("Rate-limit backend operations that failed")
+                .register(it)
+                .increment()
+        }
+        logger.warn(
+            "llm_gateway_rate_limit_backend_failed request_id={} error_type={}",
+            context.requestId.value,
+            error.javaClass.simpleName,
+        )
+    }
 
     private fun sha256(value: String): String = HexFormat.of().formatHex(
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8)),

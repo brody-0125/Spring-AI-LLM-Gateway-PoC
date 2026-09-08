@@ -198,6 +198,7 @@ class SpringAiVendorConfiguration {
     fun rateLimiterPort(
         environment: Environment,
         redisTemplate: StringRedisTemplate,
+        meterRegistry: MeterRegistry,
     ): RateLimiterPort = RedisTokenBucketRateLimiter(
         redisTemplate = redisTemplate,
         enabled = environment.booleanProperty("gateway.rate-limit.enabled", true),
@@ -205,6 +206,7 @@ class SpringAiVendorConfiguration {
         burst = environment.intProperty("gateway.rate-limit.burst", 20),
         keyPrefix = environment.getProperty("gateway.rate-limit.key-prefix", "llm-gateway:rate-limit"),
         stateTtl = environment.durationProperty("gateway.rate-limit.state-ttl", java.time.Duration.ofMinutes(2)),
+        meterRegistry = meterRegistry,
     )
 
     @Bean
@@ -222,6 +224,7 @@ class SpringAiVendorConfiguration {
     fun circuitBreakerPort(
         environment: Environment,
         redisTemplate: StringRedisTemplate,
+        meterRegistry: MeterRegistry,
     ): CircuitBreakerPort = RedisCircuitBreakerAdapter(
         redisTemplate = redisTemplate,
         enabled = environment.booleanProperty("gateway.resilience.circuit-breaker.enabled", true),
@@ -234,6 +237,7 @@ class SpringAiVendorConfiguration {
             "gateway.resilience.circuit-breaker.state-ttl",
             java.time.Duration.ofMinutes(5),
         ),
+        meterRegistry = meterRegistry,
     )
 
     private fun addOpenAiCompatible(

@@ -1,6 +1,7 @@
 package com.example.llmgateway.app
 
 import com.example.llmgateway.application.port.out.RateLimiterPort
+import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.RateLimitDecision
 import com.example.llmgateway.domain.model.RequestContext
 import java.util.concurrent.ConcurrentHashMap
@@ -23,9 +24,9 @@ internal class TestTokenBucketRateLimiter(
         require(burst > 0)
     }
 
-    override fun check(context: RequestContext): RateLimitDecision {
+    override fun check(context: RequestContext, request: CanonicalChatRequest): RateLimitDecision {
         if (!enabled) return RateLimitDecision.ALLOWED
-        val bucket = buckets.computeIfAbsent("${context.tenant}:${context.caller}") {
+        val bucket = buckets.computeIfAbsent("${context.tenant}:${context.caller}:${request.modelGroup.value}") {
             Bucket(burst.toDouble(), System.nanoTime())
         }
         synchronized(bucket) {
