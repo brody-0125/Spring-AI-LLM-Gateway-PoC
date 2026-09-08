@@ -5,7 +5,9 @@ import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserve
 import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresPricingCatalogAdapter
+import com.example.llmgateway.adapter.out.postgres.PostgresRequestAccountingAdapter
 import com.example.llmgateway.adapter.out.pricing.ConfiguredPricingCatalogAdapter
+import com.example.llmgateway.adapter.out.observability.MicrometerRequestObserver
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
 import com.example.llmgateway.adapter.out.security.StaticApiKeyAuthenticationAdapter
@@ -20,6 +22,9 @@ import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.application.port.out.PricingCatalogPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
 import com.example.llmgateway.application.port.out.NoOpAttemptAccountingPort
+import com.example.llmgateway.application.port.out.NoOpRequestAccountingPort
+import com.example.llmgateway.application.port.out.RequestAccountingPort
+import com.example.llmgateway.application.port.out.RequestObserverPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
@@ -139,6 +144,23 @@ class SpringAiVendorConfiguration {
     fun attemptAccountingPortForTest(): AttemptAccountingPort = NoOpAttemptAccountingPort
 
     @Bean
+    @Profile("!test")
+    @DependsOn("flywayInitializer")
+    fun requestAccountingPort(
+        jdbcTemplate: JdbcTemplate,
+        transactionManager: PlatformTransactionManager,
+        meterRegistry: MeterRegistry,
+    ): RequestAccountingPort = PostgresRequestAccountingAdapter(
+        jdbcTemplate = jdbcTemplate,
+        transactionTemplate = TransactionTemplate(transactionManager),
+        meterRegistry = meterRegistry,
+    )
+
+    @Bean
+    @Profile("test")
+    fun requestAccountingPortForTest(): RequestAccountingPort = NoOpRequestAccountingPort
+
+    @Bean
     fun providerInvoker(providers: ConfiguredProviders): ProviderInvokerPort =
         SpringAiProviderInvoker(providers.models)
 
@@ -157,6 +179,12 @@ class SpringAiVendorConfiguration {
         observationRegistry: ObservationRegistry,
         meterRegistry: MeterRegistry,
     ): AttemptObserverPort = MicrometerAttemptObserver(observationRegistry, meterRegistry)
+
+    @Bean
+    fun requestObserver(
+        observationRegistry: ObservationRegistry,
+        meterRegistry: MeterRegistry,
+    ): RequestObserverPort = MicrometerRequestObserver(observationRegistry, meterRegistry)
 
     @Bean
     fun clientAuthenticationPort(environment: Environment): ClientAuthenticationPort =

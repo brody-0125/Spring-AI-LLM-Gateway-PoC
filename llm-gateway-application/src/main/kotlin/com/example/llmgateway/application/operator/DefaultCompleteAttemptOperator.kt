@@ -1,8 +1,8 @@
 package com.example.llmgateway.application.operator
 
+import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
-import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayDeadlineExceededException
 import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
@@ -55,17 +55,13 @@ class DefaultCompleteAttemptOperator(
             throw providerFailure(error, attempt, deployment)
         }
 
-        return try {
-            circuitBreaker.onSuccess(deployment)
-            val outcome = AttemptOutcome.Success(
-                response.usage,
-                costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
-            )
-            record(outcome, attempt)
-            response
-        } catch (error: AttemptAccountingException) {
-            throw error
-        }
+        circuitBreaker.onSuccess(deployment)
+        val outcome = AttemptOutcome.Success(
+            response.usage,
+            costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
+        )
+        record(outcome, attempt)
+        return response
     }
 
     private fun providerFailure(
@@ -82,12 +78,8 @@ class DefaultCompleteAttemptOperator(
     }
 
     private fun record(outcome: AttemptOutcome, context: AttemptContext) {
-        try {
-            attemptAccounting.record(context, outcome)
-        } catch (error: Exception) {
-            throw AttemptAccountingException(error)
-        }
-        attemptObserver.onStop(context, outcome)
+        runCatching { attemptAccounting.record(context, outcome) }
+        runCatching { attemptObserver.onStop(context, outcome) }
     }
 
     private fun attemptContext(

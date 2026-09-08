@@ -2,6 +2,7 @@ package com.example.llmgateway.adapter.out
 
 import com.example.llmgateway.adapter.out.admission.ConfigurableGuardrailAdapter
 import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserver
+import com.example.llmgateway.adapter.out.observability.MicrometerRequestObserver
 import com.example.llmgateway.adapter.out.security.StaticApiKeyAuthenticationAdapter
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
@@ -13,6 +14,8 @@ import com.example.llmgateway.domain.model.CanonicalMessage
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.GatewayPrincipal
 import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.model.RequestOutcome
+import com.example.llmgateway.domain.model.RequestOutcomeStatus
 import com.example.llmgateway.domain.model.AttemptContext
 import com.example.llmgateway.domain.model.AttemptOutcome
 import com.example.llmgateway.domain.model.Cost
@@ -105,6 +108,33 @@ class GatewayAdaptersTest : FunSpec() {
                 "llm.gateway.cost.usd",
                 "vendor", "openai", "model_group", "default",
             ).totalAmount() shouldBe 0.01
+        }
+
+        test("request observer records lifecycle metrics without recording prompt content") {
+            val meters = SimpleMeterRegistry()
+            val observer = MicrometerRequestObserver(ObservationRegistry.create(), meters)
+            val context = RequestContext(RequestId("request-observer"), caller = "bff", tenant = "tenant-a")
+
+            observer.onStart(context, request)
+            observer.onStop(
+                context,
+                request,
+                RequestOutcome(
+                    status = RequestOutcomeStatus.FAILURE,
+                    errorType = "gateway_timeout",
+                    errorCode = "GATEWAY_TIMEOUT",
+                ),
+            )
+
+            meters.counter(
+                "llm.gateway.requests",
+                "stream", "false", "outcome", "failure",
+            ).count() shouldBe 1.0
+            meters.counter(
+                "llm.gateway.request.failures",
+                "stream", "false", "error_type", "gateway_timeout",
+            ).count() shouldBe 1.0
+            meters.find("llm.gateway.requests").meters().first().id.tags.any { it.value == "hello" } shouldBe false
         }
     }
 }

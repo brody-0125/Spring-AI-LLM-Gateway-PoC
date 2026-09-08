@@ -3,11 +3,13 @@ package com.example.llmgateway.adapter.out
 import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresPricingCatalogAdapter
+import com.example.llmgateway.adapter.out.postgres.PostgresRequestAccountingAdapter
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.AttemptId
 import com.example.llmgateway.core.primitive.Dialect
+import com.example.llmgateway.core.primitive.MessageRole
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.RequestId
 import com.example.llmgateway.core.primitive.Vendor
@@ -15,9 +17,13 @@ import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.DeploymentOverride
 import com.example.llmgateway.domain.model.AttemptContext
 import com.example.llmgateway.domain.model.AttemptOutcome
+import com.example.llmgateway.domain.model.CanonicalChatRequest
+import com.example.llmgateway.domain.model.CanonicalMessage
 import com.example.llmgateway.domain.model.Cost
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.model.RequestOutcome
+import com.example.llmgateway.domain.model.RequestOutcomeStatus
 import com.example.llmgateway.domain.model.Usage
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -199,6 +205,94 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 ) shouldBe "UNKNOWN"
             }
 
+        test("PostgreSQL request accounting aggregates all provider attempts idempotently")
+            .config(enabled = enabled) {
+                val jdbc = postgresJdbcTemplate()
+                createSchema(jdbc)
+                val transactionManager = DataSourceTransactionManager(jdbc.dataSource!!)
+                val attemptAccounting = PostgresAttemptAccountingAdapter(
+                    jdbcTemplate = jdbc,
+                    transactionTemplate = org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                )
+                val requestAccounting = PostgresRequestAccountingAdapter(
+                    jdbcTemplate = jdbc,
+                    transactionTemplate = org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                    clock = Clock.fixed(Instant.parse("2026-01-01T00:00:10Z"), java.time.ZoneOffset.UTC),
+                )
+                val requestContext = RequestContext(
+                    requestId = RequestId("aggregate-request"),
+                    caller = "bff",
+                    tenant = "tenant-a",
+                    startedAt = Instant.parse("2026-01-01T00:00:00Z"),
+                    deadline = Instant.parse("2026-01-01T00:01:00Z"),
+                )
+                val request = CanonicalChatRequest(
+                    modelGroup = ModelGroup("default"),
+                    messages = listOf(CanonicalMessage(MessageRole.USER, "hello")),
+                )
+                val firstAttempt = AttemptContext(
+                    requestId = requestContext.requestId,
+                    attemptId = AttemptId("aggregate-attempt-1"),
+                    sequence = 1,
+                    deployment = deployment,
+                    startedAt = Instant.parse("2026-01-01T00:00:01Z"),
+                )
+                val secondAttempt = firstAttempt.copy(
+                    attemptId = AttemptId("aggregate-attempt-2"),
+                    sequence = 2,
+                    startedAt = Instant.parse("2026-01-01T00:00:02Z"),
+                )
+                attemptAccounting.record(
+                    firstAttempt,
+                    AttemptOutcome.Failure(
+                        failureClass = FailureClass.TRANSIENT,
+                        usage = Usage(inputTokens = 10, outputTokens = 0),
+                        cost = Cost(
+                            usd = BigDecimal("0.001"),
+                            inputUsd = BigDecimal("0.001"),
+                            status = com.example.llmgateway.domain.model.CostStatus.REPORTED,
+                        ),
+                    ),
+                )
+                attemptAccounting.record(
+                    secondAttempt,
+                    AttemptOutcome.Success(
+                        usage = Usage(inputTokens = 10, outputTokens = 8),
+                        cost = Cost(
+                            usd = BigDecimal("0.002"),
+                            inputUsd = BigDecimal("0.001"),
+                            outputUsd = BigDecimal("0.001"),
+                            status = com.example.llmgateway.domain.model.CostStatus.REPORTED,
+                        ),
+                    ),
+                )
+
+                val outcome = RequestOutcome(RequestOutcomeStatus.SUCCESS)
+                requestAccounting.record(requestContext, request, outcome)
+                requestAccounting.record(requestContext, request, outcome)
+
+                jdbc.queryForObject(
+                    "SELECT attempt_count FROM llm_gateway_request_usage WHERE request_id = ?",
+                    Int::class.java,
+                    "aggregate-request",
+                ) shouldBe 2
+                jdbc.queryForObject(
+                    "SELECT fallback_count FROM llm_gateway_request_usage WHERE request_id = ?",
+                    Int::class.java,
+                    "aggregate-request",
+                ) shouldBe 1
+                jdbc.queryForObject(
+                    "SELECT input_tokens + output_tokens FROM llm_gateway_request_usage WHERE request_id = ?",
+                    Long::class.java,
+                    "aggregate-request",
+                ) shouldBe 28L
+                jdbc.queryForObject(
+                    "SELECT total_cost_usd FROM llm_gateway_request_usage WHERE request_id = ?",
+                    BigDecimal::class.java,
+                    "aggregate-request",
+                ) shouldBe BigDecimal("0.003000000000")
+            }
+
         test("PostgreSQL pricing catalog returns a versioned token price")
             .config(enabled = enabled) {
                 val jdbc = postgresJdbcTemplate()
@@ -245,7 +339,8 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
     private fun createSchema(jdbc: JdbcTemplate) {
         jdbc.execute(
             """
-            DROP TABLE IF EXISTS llm_gateway_attempt_usage,
+            DROP TABLE IF EXISTS llm_gateway_request_usage,
+                llm_gateway_attempt_usage,
                 llm_gateway_deployment_pricing,
                 llm_gateway_pricing_version,
                 llm_gateway_routing_version,
@@ -337,6 +432,38 @@ class DistributedAdaptersIntegrationTest : FunSpec() {
                 cost_warnings VARCHAR(512),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (request_id, attempt_id)
+            )
+            """.trimIndent(),
+        )
+        jdbc.execute(
+            """
+            CREATE TABLE llm_gateway_request_usage (
+                request_id VARCHAR(128) PRIMARY KEY,
+                trace_id VARCHAR(128),
+                caller VARCHAR(128) NOT NULL,
+                tenant VARCHAR(128) NOT NULL,
+                model_group VARCHAR(128) NOT NULL,
+                streaming BOOLEAN NOT NULL,
+                started_at TIMESTAMPTZ NOT NULL,
+                completed_at TIMESTAMPTZ NOT NULL,
+                outcome VARCHAR(32) NOT NULL,
+                error_type VARCHAR(128),
+                error_code VARCHAR(128),
+                attempt_count INTEGER NOT NULL,
+                fallback_count INTEGER NOT NULL,
+                usage_available BOOLEAN NOT NULL,
+                input_tokens BIGINT NOT NULL,
+                output_tokens BIGINT NOT NULL,
+                cache_read_input_tokens BIGINT NOT NULL,
+                cache_write_input_tokens BIGINT NOT NULL,
+                reasoning_output_tokens BIGINT NOT NULL,
+                input_cost_usd NUMERIC(24, 12) NOT NULL,
+                output_cost_usd NUMERIC(24, 12) NOT NULL,
+                cache_read_cost_usd NUMERIC(24, 12) NOT NULL,
+                cache_write_cost_usd NUMERIC(24, 12) NOT NULL,
+                total_cost_usd NUMERIC(24, 12) NOT NULL,
+                cost_status VARCHAR(32) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """.trimIndent(),
         )

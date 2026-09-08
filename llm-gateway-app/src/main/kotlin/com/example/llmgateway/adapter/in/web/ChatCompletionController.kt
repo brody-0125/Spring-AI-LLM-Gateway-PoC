@@ -62,12 +62,14 @@ class ChatCompletionController(
                     requestId = requestId,
                 ),
             )
+        val startedAt = Instant.now()
         val context = RequestContext(
             requestId = requestId,
             caller = principal.caller,
             tenant = principal.tenant,
             traceId = traceId(traceparent),
-            deadline = Instant.now().plus(requestTimeout),
+            startedAt = startedAt,
+            deadline = startedAt.plus(requestTimeout),
         )
         val canonicalRequest = ChatCompletionRequestMapper.toCanonical(request)
 

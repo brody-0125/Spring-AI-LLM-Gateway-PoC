@@ -9,5 +9,6 @@ data class RequestContext(
     val caller: String = "unknown",
     val tenant: String = "default",
     val traceId: String? = null,
-    val deadline: Instant = Instant.now().plusSeconds(60),
+    val startedAt: Instant = Instant.now(),
+    val deadline: Instant = startedAt.plusSeconds(60),
 )

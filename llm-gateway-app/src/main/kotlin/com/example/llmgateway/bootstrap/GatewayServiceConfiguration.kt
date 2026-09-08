@@ -11,6 +11,8 @@ import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.GuardrailPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
+import com.example.llmgateway.application.port.out.RequestAccountingPort
+import com.example.llmgateway.application.port.out.RequestObserverPort
 import com.example.llmgateway.application.port.out.RoutingControlPlanePort
 import com.example.llmgateway.application.port.out.RoutePlannerPort
 import com.example.llmgateway.application.operation.CompleteChatOperation
@@ -23,6 +25,7 @@ import com.example.llmgateway.application.operator.DefaultCompleteAttemptOperato
 import com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator
 import com.example.llmgateway.application.operator.DefaultStreamAttemptOperator
 import com.example.llmgateway.application.operator.RequestAdmissionOperator
+import com.example.llmgateway.application.operator.RequestLifecycleOperator
 import com.example.llmgateway.application.operator.StreamAttemptOperator
 import com.example.llmgateway.application.operator.VirtualThreadDeadlineOperator
 import com.example.llmgateway.application.policy.DefaultFailureClassifier
@@ -162,16 +165,32 @@ class GatewayServiceConfiguration {
     )
 
     @Bean
+    fun requestLifecycleOperator(
+        requestAccounting: RequestAccountingPort,
+        requestObserver: RequestObserverPort,
+    ): RequestLifecycleOperator = RequestLifecycleOperator(requestObserver, requestAccounting)
+
+    @Bean
     fun chatCompletionQueryIn(
         completeOperation: CompleteChatOperation,
         requestAdmissionOperator: RequestAdmissionOperator,
-    ): ChatCompletionQueryIn = DefaultChatCompletionQueryService(completeOperation, requestAdmissionOperator)
+        requestLifecycleOperator: RequestLifecycleOperator,
+    ): ChatCompletionQueryIn = DefaultChatCompletionQueryService(
+        completeOperation,
+        requestAdmissionOperator,
+        requestLifecycleOperator,
+    )
 
     @Bean
     fun chatCompletionCommandIn(
         streamOperation: StreamChatOperation,
         requestAdmissionOperator: RequestAdmissionOperator,
-    ): ChatCompletionCommandIn = DefaultChatCompletionCommandService(streamOperation, requestAdmissionOperator)
+        requestLifecycleOperator: RequestLifecycleOperator,
+    ): ChatCompletionCommandIn = DefaultChatCompletionCommandService(
+        streamOperation,
+        requestAdmissionOperator,
+        requestLifecycleOperator,
+    )
 
     @Bean
     fun routingCommandIn(controlPlane: RoutingControlPlanePort): RoutingCommandIn =
