@@ -2,7 +2,8 @@ package com.example.llmgateway.application
 
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
-import com.example.llmgateway.application.port.out.GuardrailPort
+import com.example.llmgateway.application.port.out.InputGuardrailPort
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
@@ -10,7 +11,10 @@ import com.example.llmgateway.application.port.out.RoutePlannerPort
 import com.example.llmgateway.application.operation.DefaultCompleteChatOperation
 import com.example.llmgateway.application.operation.DefaultStreamChatOperation
 import com.example.llmgateway.application.operator.DefaultCompleteAttemptOperator
+import com.example.llmgateway.application.operator.DefaultOutputGuardrailOperator
 import com.example.llmgateway.application.operator.DefaultStreamAttemptOperator
+import com.example.llmgateway.application.operator.NoOpOutputGuardrailOperator
+import com.example.llmgateway.application.operator.OutputGuardrailOperator
 import com.example.llmgateway.application.operator.VirtualThreadDeadlineOperator
 import com.example.llmgateway.application.port.`in`.ChatCompletionCommandIn
 import com.example.llmgateway.application.port.`in`.ChatCompletionQueryIn
@@ -325,7 +329,7 @@ class GatewayApplicationTest : FunSpec() {
             val policy = FailurePolicy()
             val admission = com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator(
                 rateLimiter = RateLimiterPort { _, _ -> RateLimitDecision(allowed = false, retryAfterSeconds = 4) },
-                guardrail = GuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
+                guardrail = InputGuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
                 errorFactory = GatewayErrorFactory(policy),
             )
 
@@ -344,7 +348,7 @@ class GatewayApplicationTest : FunSpec() {
                 rateLimiter = RateLimiterPort { _, _ ->
                     RateLimitDecision(allowed = false, retryAfterSeconds = 1, backendAvailable = false)
                 },
-                guardrail = GuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
+                guardrail = InputGuardrailPort { _, _ -> GuardrailDecision.ALLOWED },
                 errorFactory = GatewayErrorFactory(policy),
             )
 
@@ -360,7 +364,7 @@ class GatewayApplicationTest : FunSpec() {
         test("request admission rejects guardrail decision after rate limit admission") {
             val admission = com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator(
                 rateLimiter = RateLimiterPort { _, _ -> RateLimitDecision.ALLOWED },
-                guardrail = GuardrailPort { _, _ -> GuardrailDecision(false, "blocked by test") },
+                guardrail = InputGuardrailPort { _, _ -> GuardrailDecision(false, "blocked by test") },
                 errorFactory = GatewayErrorFactory(FailurePolicy()),
             )
 
@@ -369,7 +373,39 @@ class GatewayApplicationTest : FunSpec() {
             }
 
             error.error.type shouldBe "guardrail_rejected"
-            error.error.message shouldBe "blocked by test"
+            error.error.message shouldBe "The request was rejected by a gateway policy"
+        }
+
+        test("complete output guardrail blocks a provider response before it reaches the client") {
+            val gateway = gateway(
+                planner = FixedPlanner(openAi, openRouter),
+                invoker = FakeInvoker(complete = { ProviderResponse("blocked response") }),
+                outputGuardrailOperator = outputGuardrail("blocked"),
+            )
+
+            val error = shouldThrow<GatewayException> {
+                gateway.query.complete(request(), requestContext())
+            }
+
+            error.error.type shouldBe "response_guardrail_rejected"
+            error.error.code shouldBe "OUTPUT_POLICY_BLOCKED"
+        }
+
+        test("stream output guardrail blocks a phrase split across provider chunks") {
+            val gateway = gateway(
+                planner = FixedPlanner(openAi, openRouter),
+                invoker = FakeInvoker(stream = {
+                    sequenceOf(ProviderChunk("prefix bloc"), ProviderChunk("ked suffix"))
+                }),
+                outputGuardrailOperator = outputGuardrail("blocked"),
+            )
+
+            val error = shouldThrow<GatewayException> {
+                gateway.command.stream(request(stream = true), requestContext()).toList()
+            }
+
+            error.error.type shouldBe "response_guardrail_rejected"
+            error.error.code shouldBe "OUTPUT_POLICY_BLOCKED"
         }
     }
 
@@ -379,6 +415,7 @@ class GatewayApplicationTest : FunSpec() {
         observer: RecordingObserver = RecordingObserver(),
         maxAttempts: Int = 3,
         maxRetriesPerDeployment: Int = 0,
+        outputGuardrailOperator: OutputGuardrailOperator = NoOpOutputGuardrailOperator,
     ): GatewayInputs {
         val failurePolicy = FailurePolicy()
         val failureClassifier = DefaultFailureClassifier()
@@ -403,6 +440,7 @@ class GatewayApplicationTest : FunSpec() {
                         deadlineOperator = deadlineOperator,
                         circuitBreaker = NoOpCircuitBreaker,
                         failurePolicy = failurePolicy,
+                        outputGuardrailOperator = outputGuardrailOperator,
                     ),
                     attemptPolicy = attemptPolicy,
                     errorFactory = errorFactory,
@@ -419,6 +457,7 @@ class GatewayApplicationTest : FunSpec() {
                         deadlineOperator = deadlineOperator,
                         circuitBreaker = NoOpCircuitBreaker,
                         failurePolicy = failurePolicy,
+                        outputGuardrailOperator = outputGuardrailOperator,
                     ),
                     attemptPolicy = attemptPolicy,
                     errorFactory = errorFactory,
@@ -437,6 +476,17 @@ class GatewayApplicationTest : FunSpec() {
     private fun requestContext(requestId: String = "req-test") = RequestContext(
         requestId = RequestId(requestId),
         deadline = Instant.now().plusSeconds(10),
+    )
+
+    private fun outputGuardrail(blockedPhrase: String): OutputGuardrailOperator = DefaultOutputGuardrailOperator(
+        guardrail = OutputGuardrailPort { output, _ ->
+            if (output.contains(blockedPhrase)) {
+                GuardrailDecision(false, code = "OUTPUT_POLICY_BLOCKED")
+            } else {
+                GuardrailDecision.ALLOWED
+            }
+        },
+        errorFactory = GatewayErrorFactory(FailurePolicy()),
     )
 }
 

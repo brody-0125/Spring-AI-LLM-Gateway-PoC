@@ -1,6 +1,7 @@
 package com.example.llmgateway.adapter.out.springai
 
-import com.example.llmgateway.adapter.out.admission.ConfigurableGuardrailAdapter
+import com.example.llmgateway.adapter.out.admission.ConfigurableInputGuardrailAdapter
+import com.example.llmgateway.adapter.out.admission.ConfigurableOutputGuardrailAdapter
 import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserver
 import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
@@ -17,7 +18,8 @@ import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
-import com.example.llmgateway.application.port.out.GuardrailPort
+import com.example.llmgateway.application.port.out.InputGuardrailPort
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.application.port.out.PricingCatalogPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
@@ -210,13 +212,23 @@ class SpringAiVendorConfiguration {
     )
 
     @Bean
-    fun guardrailPort(environment: Environment): GuardrailPort = ConfigurableGuardrailAdapter(
+    fun inputGuardrailPort(environment: Environment): InputGuardrailPort = ConfigurableInputGuardrailAdapter(
         enabled = environment.booleanProperty("gateway.guardrails.enabled", true),
         maxInputCharacters = environment.intProperty("gateway.guardrails.max-input-characters", 100_000),
         blockedPhrases = environment.getProperty("gateway.guardrails.blocked-phrases")
             .orEmpty()
             .split(',')
             .filter(String::isNotBlank),
+    )
+
+    @Bean
+    fun outputGuardrailPort(environment: Environment): OutputGuardrailPort = ConfigurableOutputGuardrailAdapter(
+        enabled = environment.booleanProperty("gateway.guardrails.enabled", true),
+        maxOutputCharacters = environment.intProperty("gateway.guardrails.max-output-characters", 100_000),
+        blockedPhrases = environment.getProperty("gateway.guardrails.output-blocked-phrases")
+            ?.split(',')
+            ?.filter(String::isNotBlank)
+            .orEmpty(),
     )
 
     @Bean

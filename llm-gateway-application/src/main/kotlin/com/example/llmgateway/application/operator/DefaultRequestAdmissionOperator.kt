@@ -1,14 +1,14 @@
 package com.example.llmgateway.application.operator
 
 import com.example.llmgateway.application.policy.GatewayErrorFactory
-import com.example.llmgateway.application.port.out.GuardrailPort
+import com.example.llmgateway.application.port.out.InputGuardrailPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.RequestContext
 
 class DefaultRequestAdmissionOperator(
     private val rateLimiter: RateLimiterPort,
-    private val guardrail: GuardrailPort,
+    private val guardrail: InputGuardrailPort,
     private val errorFactory: GatewayErrorFactory,
 ) : RequestAdmissionOperator {
     override fun execute(request: CanonicalChatRequest, context: RequestContext) {
@@ -24,9 +24,15 @@ class DefaultRequestAdmissionOperator(
             throw errorFactory.rateLimited(context, rateLimit.retryAfterSeconds)
         }
 
-        val decision = guardrail.inspect(request, context)
+        val decision = try {
+            guardrail.inspect(request, context)
+        } catch (error: com.example.llmgateway.domain.model.GatewayException) {
+            throw error
+        } catch (error: Exception) {
+            throw errorFactory.guardrailUnavailable(context, error)
+        }
         if (!decision.allowed) {
-            throw errorFactory.guardrailRejected(context, decision.reason)
+            throw errorFactory.guardrailRejected(context, decision)
         }
     }
 }

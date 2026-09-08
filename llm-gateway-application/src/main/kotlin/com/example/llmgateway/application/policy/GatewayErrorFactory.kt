@@ -4,6 +4,7 @@ import com.example.llmgateway.domain.model.ErrorCategory
 import com.example.llmgateway.domain.model.FailureClass
 import com.example.llmgateway.domain.model.GatewayError
 import com.example.llmgateway.domain.model.GatewayException
+import com.example.llmgateway.domain.model.GuardrailDecision
 import com.example.llmgateway.domain.model.RequestContext
 import java.time.Duration
 
@@ -86,17 +87,46 @@ class GatewayErrorFactory(
             cause,
         )
 
-    fun guardrailRejected(context: RequestContext, reason: String?): GatewayException =
+    fun guardrailRejected(
+        context: RequestContext,
+        decision: GuardrailDecision,
+        output: Boolean = false,
+    ): GatewayException =
         GatewayException(
             GatewayError(
-                type = "guardrail_rejected",
-                code = "POLICY_BLOCKED",
+                type = if (output) "response_guardrail_rejected" else "guardrail_rejected",
+                code = decision.publicCode(output),
                 category = ErrorCategory.CALLER_FIXABLE,
                 retryable = false,
-                message = reason ?: "The request was rejected by a gateway guardrail",
+                message = if (output) {
+                    "The model response was rejected by a gateway policy"
+                } else {
+                    "The request was rejected by a gateway policy"
+                },
                 requestId = context.requestId,
             ),
         )
+
+    fun guardrailUnavailable(context: RequestContext, cause: Throwable): GatewayException =
+        GatewayException(
+            GatewayError(
+                type = "guardrail_unavailable",
+                code = "GUARDRAIL_UNAVAILABLE",
+                category = ErrorCategory.TRANSIENT,
+                retryable = true,
+                message = "The gateway policy service is temporarily unavailable",
+                requestId = context.requestId,
+                retryAfterSeconds = 1,
+            ),
+            cause,
+        )
+
+    private fun GuardrailDecision.publicCode(output: Boolean): String = when {
+        output && code == "OUTPUT_TOO_LARGE" -> code
+        !output && code == "INPUT_TOO_LARGE" -> code
+        output -> "OUTPUT_POLICY_BLOCKED"
+        else -> "INPUT_POLICY_BLOCKED"
+    }
 
     fun gatewayTimeout(context: RequestContext, cause: Throwable): GatewayException =
         from(context, FailureClass.GATEWAY_TIMEOUT, cause)

@@ -15,6 +15,7 @@ import com.example.llmgateway.domain.model.AttemptOutcome
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
 import com.example.llmgateway.domain.model.GatewayEvent
+import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.Usage
 import com.example.llmgateway.domain.model.costOf
@@ -32,6 +33,7 @@ class DefaultStreamAttemptOperator(
     private val attemptPolicy: AttemptPolicy = AttemptPolicy(failurePolicy),
     private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
     private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
+    private val outputGuardrailOperator: OutputGuardrailOperator = NoOpOutputGuardrailOperator,
 ) : StreamAttemptOperator {
 
     override fun execute(
@@ -48,6 +50,7 @@ class DefaultStreamAttemptOperator(
         var finishReason = "stop"
         var firstTokenRecorded = false
         var providerActive = true
+        val outputGuardrail = outputGuardrailOperator.openStream(context)
 
         try {
             val providerChunks = deadlineOperator.execute(attempt.deadline) {
@@ -56,13 +59,14 @@ class DefaultStreamAttemptOperator(
             val iterator = providerChunks.iterator()
             while (deadlineOperator.execute(attempt.deadline) { iterator.hasNext() }) {
                 val chunk = deadlineOperator.execute(attempt.deadline) { iterator.next() }
+                chunk.usage?.let { usage = usage.mergeCumulative(it) }
+                chunk.finishReason?.let { finishReason = it }
+                outputGuardrail.inspect(chunk.text)
                 emitted = true
                 if (chunk.text.isNotEmpty() && !firstTokenRecorded) {
                     firstTokenRecorded = true
                     attemptObserver.onFirstToken(attempt)
                 }
-                chunk.usage?.let { usage = usage.mergeCumulative(it) }
-                chunk.finishReason?.let { finishReason = it }
                 try {
                     yield(
                         GatewayEvent.Delta(
@@ -93,6 +97,22 @@ class DefaultStreamAttemptOperator(
                     finishReason = finishReason,
                 ),
             )
+        } catch (error: GatewayException) {
+            val failureClass = if (error.error.code == "GUARDRAIL_UNAVAILABLE") {
+                com.example.llmgateway.domain.model.FailureClass.UNKNOWN
+            } else {
+                com.example.llmgateway.domain.model.FailureClass.CONTENT_POLICY
+            }
+            record(
+                AttemptOutcome.Failure(
+                    failureClass = failureClass,
+                    usage = usage,
+                    cost = costCalculationOperator.calculate(deployment, usage, Instant.now()),
+                ),
+                attempt,
+            )
+            providerActive = false
+            throw error
         } catch (error: InterruptedException) {
             record(
                 AttemptOutcome.CancelledWithUsage(

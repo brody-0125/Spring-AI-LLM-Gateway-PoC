@@ -50,4 +50,22 @@ class GatewayErrorHandlerTest : FunSpec({
         response.body?.error?.code shouldBe "POLICY_BLOCKED"
         response.body?.error?.retryAfterSeconds shouldBe null
     }
+
+    test("maps response policy rejection to 422") {
+        val response = handler.handle(
+            GatewayException(
+                GatewayError(
+                    type = "response_guardrail_rejected",
+                    code = "OUTPUT_POLICY_BLOCKED",
+                    category = ErrorCategory.CALLER_FIXABLE,
+                    retryable = false,
+                    message = "The model response was rejected by a gateway policy",
+                    requestId = requestId,
+                ),
+            ),
+        )
+
+        response.statusCode.value() shouldBe HttpStatus.UNPROCESSABLE_ENTITY.value()
+        response.body?.error?.code shouldBe "OUTPUT_POLICY_BLOCKED"
+    }
 })

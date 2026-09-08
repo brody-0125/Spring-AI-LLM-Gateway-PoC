@@ -19,7 +19,9 @@ class GatewayErrorHandler {
     @ExceptionHandler(GatewayException::class)
     fun handle(error: GatewayException): ResponseEntity<ErrorResponseDto> {
         val status = when (error.error.category) {
-            ErrorCategory.CALLER_FIXABLE -> if (error.error.type == "guardrail_rejected") 422 else 400
+            ErrorCategory.CALLER_FIXABLE -> if (
+                error.error.type == "guardrail_rejected" || error.error.type == "response_guardrail_rejected"
+            ) 422 else 400
             ErrorCategory.ENTITLEMENT -> if (error.error.type == "authentication_required") 401 else 403
             ErrorCategory.TRANSIENT -> when (error.error.type) {
                 "rate_limited", "gateway_rate_limited" -> 429

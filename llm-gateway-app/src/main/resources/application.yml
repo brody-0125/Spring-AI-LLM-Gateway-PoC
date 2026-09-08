@@ -64,7 +64,10 @@ gateway:
   guardrails:
     enabled: ${GATEWAY_GUARDRAILS_ENABLED:true}
     max-input-characters: ${GATEWAY_GUARDRAIL_MAX_INPUT_CHARACTERS:100000}
+    max-output-characters: ${GATEWAY_GUARDRAIL_MAX_OUTPUT_CHARACTERS:100000}
+    stream-inspection-window-characters: ${GATEWAY_GUARDRAIL_STREAM_INSPECTION_WINDOW_CHARACTERS:4096}
     blocked-phrases: ${GATEWAY_GUARDRAIL_BLOCKED_PHRASES:}
+    output-blocked-phrases: ${GATEWAY_GUARDRAIL_OUTPUT_BLOCKED_PHRASES:}
   resilience:
     max-total-attempts: ${GATEWAY_MAX_TOTAL_ATTEMPTS:3}
     max-retries-per-deployment: ${GATEWAY_MAX_RETRIES_PER_DEPLOYMENT:1}

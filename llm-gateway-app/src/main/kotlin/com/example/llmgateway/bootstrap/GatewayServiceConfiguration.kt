@@ -8,7 +8,8 @@ import com.example.llmgateway.application.port.out.AttemptAccountingPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
-import com.example.llmgateway.application.port.out.GuardrailPort
+import com.example.llmgateway.application.port.out.InputGuardrailPort
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.application.port.out.ProviderInvokerPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
 import com.example.llmgateway.application.port.out.RequestAccountingPort
@@ -22,8 +23,10 @@ import com.example.llmgateway.application.operation.StreamChatOperation
 import com.example.llmgateway.application.operator.CompleteAttemptOperator
 import com.example.llmgateway.application.operator.CostCalculationOperator
 import com.example.llmgateway.application.operator.DefaultCompleteAttemptOperator
+import com.example.llmgateway.application.operator.DefaultOutputGuardrailOperator
 import com.example.llmgateway.application.operator.DefaultRequestAdmissionOperator
 import com.example.llmgateway.application.operator.DefaultStreamAttemptOperator
+import com.example.llmgateway.application.operator.OutputGuardrailOperator
 import com.example.llmgateway.application.operator.RequestAdmissionOperator
 import com.example.llmgateway.application.operator.RequestLifecycleOperator
 import com.example.llmgateway.application.operator.StreamAttemptOperator
@@ -88,9 +91,22 @@ class GatewayServiceConfiguration {
     @Bean
     fun requestAdmissionOperator(
         rateLimiter: RateLimiterPort,
-        guardrail: GuardrailPort,
+        guardrail: InputGuardrailPort,
         gatewayErrorFactory: GatewayErrorFactory,
     ) = DefaultRequestAdmissionOperator(rateLimiter, guardrail, gatewayErrorFactory)
+
+    @Bean
+    fun outputGuardrailOperator(
+        outputGuardrailPort: OutputGuardrailPort,
+        gatewayErrorFactory: GatewayErrorFactory,
+        @Value("\${gateway.guardrails.max-output-characters:100000}") maxOutputCharacters: Int,
+        @Value("\${gateway.guardrails.stream-inspection-window-characters:4096}") inspectionWindowCharacters: Int,
+    ): OutputGuardrailOperator = DefaultOutputGuardrailOperator(
+        guardrail = outputGuardrailPort,
+        errorFactory = gatewayErrorFactory,
+        maxStreamOutputCharacters = maxOutputCharacters,
+        streamInspectionWindowCharacters = inspectionWindowCharacters,
+    )
 
     @Bean
     fun completeAttemptOperator(
@@ -103,6 +119,7 @@ class GatewayServiceConfiguration {
         circuitBreaker: CircuitBreakerPort,
         costCalculationOperator: CostCalculationOperator,
         attemptAccounting: AttemptAccountingPort,
+        outputGuardrailOperator: OutputGuardrailOperator,
     ): CompleteAttemptOperator = DefaultCompleteAttemptOperator(
         providerInvoker = providerInvoker,
         failureClassifier = failureClassifier,
@@ -113,6 +130,7 @@ class GatewayServiceConfiguration {
         attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
         attemptAccounting = attemptAccounting,
+        outputGuardrailOperator = outputGuardrailOperator,
     )
 
     @Bean
@@ -126,6 +144,7 @@ class GatewayServiceConfiguration {
         circuitBreaker: CircuitBreakerPort,
         costCalculationOperator: CostCalculationOperator,
         attemptAccounting: AttemptAccountingPort,
+        outputGuardrailOperator: OutputGuardrailOperator,
     ): StreamAttemptOperator = DefaultStreamAttemptOperator(
         providerInvoker = providerInvoker,
         failureClassifier = failureClassifier,
@@ -136,6 +155,7 @@ class GatewayServiceConfiguration {
         attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
         attemptAccounting = attemptAccounting,
+        outputGuardrailOperator = outputGuardrailOperator,
     )
 
     @Bean

@@ -1,6 +1,7 @@
 package com.example.llmgateway.adapter.out
 
-import com.example.llmgateway.adapter.out.admission.ConfigurableGuardrailAdapter
+import com.example.llmgateway.adapter.out.admission.ConfigurableInputGuardrailAdapter
+import com.example.llmgateway.adapter.out.admission.ConfigurableOutputGuardrailAdapter
 import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserver
 import com.example.llmgateway.adapter.out.observability.MicrometerRequestObserver
 import com.example.llmgateway.adapter.out.security.StaticApiKeyAuthenticationAdapter
@@ -42,17 +43,27 @@ class GatewayAdaptersTest : FunSpec() {
 
     init {
         test("configured guardrail rejects blocked phrase and oversized input") {
-            val blocked = ConfigurableGuardrailAdapter(true, 100, listOf("secret instruction"))
+            val blocked = ConfigurableInputGuardrailAdapter(true, 100, listOf("secret instruction"))
             blocked.inspect(
                 request.copy(messages = listOf(CanonicalMessage(com.example.llmgateway.core.primitive.MessageRole.USER, "SECRET INSTRUCTION"))),
                 RequestContext(RequestId("req")),
             ).allowed shouldBe false
 
-            val oversized = ConfigurableGuardrailAdapter(true, 3, emptyList())
+            val oversized = ConfigurableInputGuardrailAdapter(true, 3, emptyList())
             oversized.inspect(request, RequestContext(RequestId("req"))).reason shouldBe
                 "The request exceeds the gateway input limit"
 
-            ConfigurableGuardrailAdapter(false, 1, listOf("hello"))
+            val outputBlocked = ConfigurableOutputGuardrailAdapter(
+                enabled = true,
+                maxOutputCharacters = 20,
+                blockedPhrases = listOf("internal-only"),
+            )
+            outputBlocked.inspect("internal-only", RequestContext(RequestId("req"))).code shouldBe
+                "OUTPUT_POLICY_BLOCKED"
+            outputBlocked.inspect("123456789012345678901", RequestContext(RequestId("req"))).code shouldBe
+                "OUTPUT_TOO_LARGE"
+
+            ConfigurableInputGuardrailAdapter(false, 1, listOf("hello"))
                 .inspect(request, RequestContext(RequestId("req"))) shouldBe
                 com.example.llmgateway.domain.model.GuardrailDecision.ALLOWED
         }

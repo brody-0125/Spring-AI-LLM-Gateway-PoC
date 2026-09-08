@@ -14,6 +14,7 @@ import com.example.llmgateway.domain.model.AttemptContext
 import com.example.llmgateway.domain.model.AttemptOutcome
 import com.example.llmgateway.domain.model.CanonicalChatRequest
 import com.example.llmgateway.domain.model.Deployment
+import com.example.llmgateway.domain.model.GatewayException
 import com.example.llmgateway.domain.model.ProviderResponse
 import com.example.llmgateway.domain.model.RequestContext
 import com.example.llmgateway.domain.model.costOf
@@ -31,6 +32,7 @@ class DefaultCompleteAttemptOperator(
     private val attemptPolicy: AttemptPolicy = AttemptPolicy(failurePolicy),
     private val costCalculationOperator: CostCalculationOperator = LegacyCostCalculationOperator,
     private val attemptAccounting: AttemptAccountingPort = NoOpAttemptAccountingPort,
+    private val outputGuardrailOperator: OutputGuardrailOperator = NoOpOutputGuardrailOperator,
 ) : CompleteAttemptOperator {
 
     override fun execute(
@@ -53,6 +55,23 @@ class DefaultCompleteAttemptOperator(
             throw providerFailure(error.asGatewayDeadlineFailure(context), attempt, deployment)
         } catch (error: Exception) {
             throw providerFailure(error, attempt, deployment)
+        }
+
+        try {
+            outputGuardrailOperator.inspectComplete(
+                output = response.text,
+                context = context,
+            )
+        } catch (error: GatewayException) {
+            record(
+                AttemptOutcome.Failure(
+                    failureClass = com.example.llmgateway.domain.model.FailureClass.CONTENT_POLICY,
+                    usage = response.usage,
+                    cost = costCalculationOperator.calculate(deployment, response.usage, Instant.now()),
+                ),
+                attempt,
+            )
+            throw error
         }
 
         circuitBreaker.onSuccess(deployment)

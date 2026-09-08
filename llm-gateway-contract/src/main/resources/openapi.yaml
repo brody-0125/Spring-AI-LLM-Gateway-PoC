@@ -116,7 +116,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     UnprocessableEntity:
-      description: The request was rejected by a gateway policy.
+      description: The request or model response was rejected by a gateway policy.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
