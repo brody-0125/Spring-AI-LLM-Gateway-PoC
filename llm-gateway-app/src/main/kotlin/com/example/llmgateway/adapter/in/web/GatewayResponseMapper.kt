@@ -4,8 +4,8 @@ import com.example.llmgateway.contract.ChatChoiceDto
 import com.example.llmgateway.contract.ChatCompletionResponse
 import com.example.llmgateway.contract.ChatMessageDto
 import com.example.llmgateway.contract.UsageDto
-import com.example.llmgateway.domain.model.GatewayResponse
-import com.example.llmgateway.domain.model.Usage
+import com.example.llmgateway.domain.accounting.Usage
+import com.example.llmgateway.domain.inference.chat.GatewayResponse
 
 internal object GatewayResponseMapper {
     fun toContract(response: GatewayResponse) = ChatCompletionResponse(
@@ -23,7 +23,7 @@ internal object GatewayResponseMapper {
     )
 }
 
-internal fun Usage.toUsageDtoOrNull(): UsageDto? = takeIf { available }?.let {
+internal fun Usage.toUsageDtoOrNull(): UsageDto? = takeIf { hasCompleteTokenTotals }?.let {
     UsageDto(
         promptTokens = inputTokens,
         completionTokens = outputTokens,

@@ -1,9 +1,9 @@
 package com.example.llmgateway.application.operator
 
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.ProviderException
-import com.example.llmgateway.domain.model.ProviderFailurePhase
-import com.example.llmgateway.domain.model.RequestDisposition
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.ProviderException
+import com.example.llmgateway.domain.error.ProviderFailurePhase
+import com.example.llmgateway.domain.error.RequestDisposition
 import java.time.Duration
 
 class AttemptFailureException(

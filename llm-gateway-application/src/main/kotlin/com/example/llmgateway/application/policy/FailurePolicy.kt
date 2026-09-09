@@ -1,7 +1,7 @@
 package com.example.llmgateway.application.policy
 
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.FailureClass
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.FailureClass
 
 class FailurePolicy {
     fun fallbackEligible(failure: FailureClass): Boolean = when (failure) {

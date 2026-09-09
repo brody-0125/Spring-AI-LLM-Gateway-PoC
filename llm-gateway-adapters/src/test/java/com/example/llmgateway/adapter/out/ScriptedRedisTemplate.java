@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Queue;
 
 final class ScriptedRedisTemplate extends StringRedisTemplate {
-    private final Queue<Long> results = new ArrayDeque<>();
+    private final Queue<Object> results = new ArrayDeque<>();
 
-    ScriptedRedisTemplate(Long... results) {
-        for (Long result : results) {
+    ScriptedRedisTemplate(Object... results) {
+        for (Object result : results) {
             this.results.add(result);
         }
     }

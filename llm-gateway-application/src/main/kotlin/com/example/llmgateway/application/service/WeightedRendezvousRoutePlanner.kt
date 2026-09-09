@@ -1,23 +1,23 @@
 package com.example.llmgateway.application.service
 
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
-import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.RoutePlannerPort
+import com.example.llmgateway.application.port.out.RoutingSnapshotPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.ModelGroup
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.GatewayError
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.RequestContext
-import com.example.llmgateway.domain.model.RoutingPlan
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.GatewayError
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.routing.Deployment
+import com.example.llmgateway.domain.routing.RoutingPlan
 import java.math.BigInteger
 import java.security.MessageDigest
 import kotlin.math.ln
 
 class WeightedRendezvousRoutePlanner(
-    private val deploymentRegistry: DeploymentRegistryPort,
+    private val deploymentRegistry: RoutingSnapshotPort,
     private val circuitBreaker: CircuitBreakerPort,
 ) : RoutePlannerPort {
 
@@ -29,13 +29,13 @@ class WeightedRendezvousRoutePlanner(
         context: RequestContext,
         excludedDeploymentIds: Set<DeploymentId>,
     ): RoutingPlan {
-        val snapshot = deploymentRegistry.snapshot()
+        val snapshot = deploymentRegistry.current()
         val eligible = snapshot.deployments
             .filter { it.enabled && it.modelGroup == request.modelGroup }
             .filter { !request.stream || it.supportsStreaming }
             .filter { it.weight > 0 }
             .filterNot { it.id in excludedDeploymentIds }
-            .filter(circuitBreaker::allow)
+            .filter(circuitBreaker::inspect)
 
         if (eligible.isEmpty()) {
             throw GatewayException(
@@ -52,7 +52,7 @@ class WeightedRendezvousRoutePlanner(
 
         val primaryPriority = eligible.minOf { it.priority }
         val primaryTier = eligible.filter { it.priority == primaryPriority }
-        val primary = selectPrimary(context.requestId.value, request.modelGroup, primaryTier)
+        val primary = selectPrimary(context.executionId.value, request.modelGroup, primaryTier)
         val alternates = eligible
             .filterNot { it.id == primary.id }
             .sortedWith(compareBy<Deployment>({ it.priority }, { it.id.value }))
@@ -60,19 +60,20 @@ class WeightedRendezvousRoutePlanner(
             primary = primary,
             alternates = alternates,
             snapshotVersion = snapshot.version,
+            pricing = snapshot.pricing,
         )
     }
 
     private fun selectPrimary(
-        requestId: String,
+        executionId: String,
         modelGroup: ModelGroup,
         eligible: List<Deployment>,
     ): Deployment = eligible.minWith(
-        compareBy<Deployment>({ weightedScore(requestId, modelGroup, it) }, { it.id.value }),
+        compareBy<Deployment>({ weightedScore(executionId, modelGroup, it) }, { it.id.value }),
     )
 
-    private fun weightedScore(requestId: String, modelGroup: ModelGroup, deployment: Deployment): Double {
-        val input = "$requestId|${modelGroup.value}|${deployment.id.value}"
+    private fun weightedScore(executionId: String, modelGroup: ModelGroup, deployment: Deployment): Double {
+        val input = "$executionId|${modelGroup.value}|${deployment.id.value}"
             .toByteArray(Charsets.UTF_8)
         val digest = MessageDigest.getInstance("SHA-256").digest(input)
         val unsigned = BigInteger(1, digest.copyOfRange(0, 8))

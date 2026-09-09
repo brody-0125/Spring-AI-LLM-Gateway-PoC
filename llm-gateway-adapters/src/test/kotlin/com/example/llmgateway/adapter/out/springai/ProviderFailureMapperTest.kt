@@ -1,13 +1,13 @@
 package com.example.llmgateway.adapter.out.springai
 
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.ProviderException
+import com.example.llmgateway.domain.error.ProviderException
+import com.example.llmgateway.domain.error.ProviderFailurePhase
+import com.example.llmgateway.domain.error.RequestDisposition
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.net.ConnectException
 import java.net.SocketTimeoutException
-import com.example.llmgateway.domain.model.ProviderFailurePhase
-import com.example.llmgateway.domain.model.RequestDisposition
 
 class ProviderFailureMapperTest : FunSpec({
     test("maps unknown provider failures to a retryable sanitized failure") {

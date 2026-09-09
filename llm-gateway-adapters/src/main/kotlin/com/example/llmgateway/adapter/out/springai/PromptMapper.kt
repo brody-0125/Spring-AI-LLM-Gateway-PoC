@@ -2,9 +2,9 @@ package com.example.llmgateway.adapter.out.springai
 
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.MessageRole
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.CanonicalMessage
-import com.example.llmgateway.domain.model.Deployment
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.CanonicalMessage
+import com.example.llmgateway.domain.routing.Deployment
 import org.springframework.ai.bedrock.converse.BedrockChatOptions
 import org.springframework.ai.chat.messages.AssistantMessage
 import org.springframework.ai.chat.messages.Message

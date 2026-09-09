@@ -3,6 +3,12 @@ plugins {
     `java-library`
 }
 
+// Integration tests execute the exact migrations shipped by the executable app.
+sourceSets.test {
+    resources.srcDir(project(":llm-gateway-app").file("src/main/resources"))
+    resources.include("db/migration/**")
+}
+
 dependencies {
     implementation(project(":llm-gateway-core"))
     implementation(project(":llm-gateway-domain"))

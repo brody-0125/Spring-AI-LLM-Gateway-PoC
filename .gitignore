@@ -15,6 +15,12 @@
 application-local.yml
 application-local.yaml
 
+# Local execution status
+/docs/design/execution-status.md
+
+# Local research material
+/docs/research/
+
 # OS files
 .DS_Store
 Thumbs.db

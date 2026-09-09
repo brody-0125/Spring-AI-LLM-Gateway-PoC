@@ -3,15 +3,15 @@ package com.example.llmgateway.adapter.`in`.web
 import com.example.llmgateway.contract.ErrorResponseDto
 import com.example.llmgateway.contract.GatewayErrorDto
 import com.example.llmgateway.core.primitive.RequestId
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.GatewayException
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.GatewayException
 import jakarta.servlet.http.HttpServletRequest
+import java.util.UUID
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import java.util.UUID
 
 @RestControllerAdvice
 class GatewayErrorHandler {
@@ -24,11 +24,11 @@ class GatewayErrorHandler {
             ) 422 else 400
             ErrorCategory.ENTITLEMENT -> if (error.error.type == "authentication_required") 401 else 403
             ErrorCategory.TRANSIENT -> when (error.error.type) {
-                "rate_limited", "gateway_rate_limited" -> 429
+                "rate_limited", "gateway_rate_limited", "budget_exceeded" -> 429
                 "gateway_timeout" -> 504
                 else -> 503
             }
-            ErrorCategory.GATEWAY_FAULT -> if (error.error.type == "routing_unavailable") 503 else 500
+            ErrorCategory.GATEWAY_FAULT -> if (error.error.type in setOf("routing_unavailable", "outcome_unknown")) 503 else 500
         }
         val response = ResponseEntity.status(status)
             .header("X-Request-Id", error.error.requestId.value)
@@ -90,7 +90,7 @@ private fun HttpServletRequest.requestId(): String =
         ?.let { runCatching { RequestId(it).value }.getOrNull() }
         ?: "req_${UUID.randomUUID()}"
 
-private fun com.example.llmgateway.domain.model.GatewayError.toContract() = GatewayErrorDto(
+private fun com.example.llmgateway.domain.error.GatewayError.toContract() = GatewayErrorDto(
     type = type,
     code = code,
     message = message,

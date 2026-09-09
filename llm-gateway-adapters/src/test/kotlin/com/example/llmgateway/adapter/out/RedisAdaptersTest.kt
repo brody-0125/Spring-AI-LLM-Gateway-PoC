@@ -2,16 +2,18 @@ package com.example.llmgateway.adapter.out
 
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
+import com.example.llmgateway.core.primitive.AttemptId
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.RequestId
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.CanonicalMessage
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.CanonicalMessage
+import com.example.llmgateway.domain.routing.CircuitPermit
+import com.example.llmgateway.domain.routing.Deployment
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -61,7 +63,7 @@ class RedisAdaptersTest : FunSpec() {
 
         test("Redis circuit breaker maps shared script state and disabled mode") {
             val circuit = RedisCircuitBreakerAdapter(
-                redisTemplate = ScriptedRedisTemplate(1L, 0L, 1L, 2L),
+                redisTemplate = ScriptedRedisTemplate(1L, 0L, "generation", "", 1L, 1L, 1L),
                 enabled = true,
                 failureThreshold = 2,
                 openDuration = Duration.ofSeconds(1),
@@ -69,10 +71,14 @@ class RedisAdaptersTest : FunSpec() {
                 stateTtl = Duration.ofMinutes(1),
             )
 
-            circuit.allow(deployment) shouldBe true
-            circuit.allow(deployment) shouldBe false
-            circuit.onSuccess(deployment)
-            circuit.onFailure(deployment, FailureClass.TRANSIENT)
+            circuit.inspect(deployment) shouldBe true
+            circuit.inspect(deployment) shouldBe false
+            val permit = circuit.acquire(deployment, AttemptId("owner"))!!
+            permit shouldBe CircuitPermit(AttemptId("owner"), "generation")
+            circuit.acquire(deployment, AttemptId("other")) shouldBe null
+            circuit.onSuccess(deployment, permit)
+            circuit.onFailure(deployment, permit, FailureClass.TRANSIENT)
+            circuit.onIgnored(deployment, permit)
 
             RedisCircuitBreakerAdapter(
                 redisTemplate = ScriptedRedisTemplate(),
@@ -81,10 +87,13 @@ class RedisAdaptersTest : FunSpec() {
                 openDuration = Duration.ofSeconds(1),
                 keyPrefix = "test-circuit",
                 stateTtl = Duration.ofMinutes(1),
-            ).allow(deployment) shouldBe true
+            ).let {
+                it.inspect(deployment) shouldBe true
+                it.acquire(deployment, AttemptId("disabled")) shouldBe CircuitPermit(AttemptId("disabled"), "disabled")
+            }
         }
 
-        test("Redis backend failures fail closed for admission and open for circuit checks") {
+        test("Redis backend failures fail closed for both admission and circuit acquisition") {
             val context = RequestContext(RequestId("backend-failure"), caller = "bff", tenant = "tenant")
             val rateLimit = RedisTokenBucketRateLimiter(
                 redisTemplate = ScriptedRedisTemplate(),
@@ -106,9 +115,12 @@ class RedisAdaptersTest : FunSpec() {
                 keyPrefix = "test-circuit",
                 stateTtl = Duration.ofMinutes(1),
             )
-            circuit.allow(deployment) shouldBe true
-            circuit.onSuccess(deployment)
-            circuit.onFailure(deployment, FailureClass.TRANSIENT)
+            circuit.inspect(deployment) shouldBe false
+            circuit.acquire(deployment, AttemptId("unavailable")) shouldBe null
+            val permit = CircuitPermit(AttemptId("old-owner"), "old-generation")
+            circuit.onSuccess(deployment, permit)
+            circuit.onFailure(deployment, permit, FailureClass.TRANSIENT)
+            circuit.onIgnored(deployment, permit)
         }
 
         test("distributed state adapters reject unsafe configuration") {

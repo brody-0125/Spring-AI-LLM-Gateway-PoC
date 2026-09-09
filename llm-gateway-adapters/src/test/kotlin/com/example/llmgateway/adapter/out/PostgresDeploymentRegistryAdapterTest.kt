@@ -5,13 +5,13 @@ import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.DeploymentOverride
+import com.example.llmgateway.domain.policy.DeploymentOverride
+import com.example.llmgateway.domain.routing.Deployment
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
-import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
+import org.springframework.jdbc.datasource.DriverManagerDataSource
 
 class PostgresDeploymentRegistryAdapterTest : FunSpec() {
 
@@ -23,7 +23,7 @@ class PostgresDeploymentRegistryAdapterTest : FunSpec() {
                 username = "sa"
                 password = ""
             }
-            val jdbc = H2CompatibleJdbcTemplate(dataSource)
+            val jdbc = org.springframework.jdbc.core.JdbcTemplate(dataSource)
             jdbc.execute(
                 """
                 CREATE TABLE llm_gateway_deployment (
@@ -54,15 +54,32 @@ class PostgresDeploymentRegistryAdapterTest : FunSpec() {
             )
 
             val transactionManager = DataSourceTransactionManager(dataSource)
-            val first = PostgresDeploymentRegistryAdapter(jdbc, transactionManager, listOf(deployment))
-            first.initialize()
+            jdbc.update("INSERT INTO llm_gateway_routing_version (id, version) VALUES (1, 1)")
+            jdbc.update(
+                """
+                INSERT INTO llm_gateway_deployment (
+                    id, vendor, dialect, model_group, model, enabled, weight, supports_streaming,
+                    input_cost_per_1k_usd, output_cost_per_1k_usd
+                ) VALUES (?, 'OPENAI', 'OPENAI', 'default', 'gpt-test', true, 1, true, 0, 0)
+                """.trimIndent(),
+                deployment.id.value,
+            )
+            val first = PostgresDeploymentRegistryAdapter(jdbc, transactionManager)
             first.snapshot().version shouldBe 1L
+            first.isEnabled(deployment.id) shouldBe true
+            first.isEnabled(DeploymentId("absent")) shouldBe false
 
             first.update(listOf(DeploymentOverride(deployment.id, enabled = false, priority = 3, weight = 0)))
-            val second = PostgresDeploymentRegistryAdapter(jdbc, transactionManager, listOf(deployment))
+            val second = PostgresDeploymentRegistryAdapter(jdbc, transactionManager)
             second.snapshot().deployments.single().enabled shouldBe false
+            first.isEnabled(deployment.id) shouldBe false
             second.snapshot().deployments.single().priority shouldBe 3
             second.snapshot().version shouldBe 2L
+            repeat(3) {
+                val configuration = com.example.llmgateway.adapter.out.springai.SpringAiVendorConfiguration()
+                configuration.deploymentRegistry(jdbc, transactionManager).snapshot() shouldBe second.snapshot()
+                configuration.pricingCatalog(jdbc)
+            }
 
             shouldThrow<IllegalArgumentException> {
                 second.update(listOf(DeploymentOverride(DeploymentId("unknown"), enabled = true)))

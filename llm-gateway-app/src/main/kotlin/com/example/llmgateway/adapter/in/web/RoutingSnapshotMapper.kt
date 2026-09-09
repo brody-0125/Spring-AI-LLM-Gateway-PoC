@@ -2,7 +2,7 @@ package com.example.llmgateway.adapter.`in`.web
 
 import com.example.llmgateway.adapter.`in`.web.internal.RoutingDeploymentDto
 import com.example.llmgateway.adapter.`in`.web.internal.RoutingSnapshotDto
-import com.example.llmgateway.domain.model.RoutingSnapshot
+import com.example.llmgateway.domain.routing.RoutingSnapshot
 
 internal object RoutingSnapshotMapper {
     fun toContract(snapshot: RoutingSnapshot) = RoutingSnapshotDto(

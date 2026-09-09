@@ -1,12 +1,8 @@
 package com.example.llmgateway.application.port.out
 
-import com.example.llmgateway.domain.model.AttemptContext
-import com.example.llmgateway.domain.model.AttemptOutcome
+import com.example.llmgateway.domain.execution.AttemptContext
+import com.example.llmgateway.domain.observation.AttemptObservationHandle
 
 interface AttemptObserverPort {
-    fun onStart(context: AttemptContext)
-
-    fun onFirstToken(context: AttemptContext) = Unit
-
-    fun onStop(context: AttemptContext, outcome: AttemptOutcome)
+    fun start(context: AttemptContext): AttemptObservationHandle
 }

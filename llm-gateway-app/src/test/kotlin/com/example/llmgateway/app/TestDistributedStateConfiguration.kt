@@ -2,6 +2,7 @@ package com.example.llmgateway.app
 
 import com.example.llmgateway.adapter.out.springai.ConfiguredProviders
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
+import com.example.llmgateway.application.port.out.AttemptJournalPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
@@ -10,6 +11,9 @@ import org.springframework.core.env.Environment
 
 @TestConfiguration(proxyBeanMethods = false)
 class TestDistributedStateConfiguration {
+
+    @Bean
+    fun testAttemptJournal(): AttemptJournalPort = TestAttemptJournal()
 
     @Bean
     @Primary

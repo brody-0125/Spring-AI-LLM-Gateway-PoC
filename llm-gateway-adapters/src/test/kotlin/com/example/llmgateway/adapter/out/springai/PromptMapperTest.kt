@@ -1,14 +1,14 @@
 package com.example.llmgateway.adapter.out.springai
 
-import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.DeploymentId
+import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.MessageRole
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.CanonicalMessage
-import com.example.llmgateway.domain.model.CanonicalOptions
-import com.example.llmgateway.domain.model.Deployment
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.CanonicalMessage
+import com.example.llmgateway.domain.inference.chat.CanonicalOptions
+import com.example.llmgateway.domain.routing.Deployment
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import org.springframework.ai.bedrock.converse.BedrockChatOptions

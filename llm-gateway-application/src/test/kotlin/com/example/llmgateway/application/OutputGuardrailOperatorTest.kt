@@ -1,13 +1,13 @@
 package com.example.llmgateway.application
 
 import com.example.llmgateway.application.operator.DefaultOutputGuardrailOperator
-import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.application.policy.FailurePolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.core.primitive.RequestId
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.GuardrailDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.policy.GuardrailDecision
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe

@@ -1,8 +1,8 @@
 package com.example.llmgateway.adapter.out.admission
 
 import com.example.llmgateway.application.port.out.OutputGuardrailPort
-import com.example.llmgateway.domain.model.GuardrailDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.policy.GuardrailDecision
 import java.util.Locale
 
 class ConfigurableOutputGuardrailAdapter(

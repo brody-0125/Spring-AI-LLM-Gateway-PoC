@@ -1,7 +1,7 @@
 package com.example.llmgateway.adapter.out.security
 
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
-import com.example.llmgateway.domain.model.GatewayPrincipal
+import com.example.llmgateway.domain.identity.GatewayPrincipal
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 

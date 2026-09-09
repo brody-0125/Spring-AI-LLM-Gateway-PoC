@@ -1,0 +1,6 @@
+// Negative verification fixture, loaded only with an explicit Gradle -I invocation.
+gradle.afterProject { candidate ->
+    if (candidate.path == ':llm-gateway-domain') {
+        candidate.dependencies.add('runtimeOnly', 'org.springframework:spring-core')
+    }
+}

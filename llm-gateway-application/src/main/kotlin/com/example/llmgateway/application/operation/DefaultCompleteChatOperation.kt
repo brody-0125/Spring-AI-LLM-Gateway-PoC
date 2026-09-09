@@ -6,16 +6,17 @@ import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.port.out.RoutePlannerPort
 import com.example.llmgateway.core.primitive.DeploymentId
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.GatewayResponse
-import com.example.llmgateway.domain.model.RequestContext
-import com.example.llmgateway.domain.model.RoutingPlan
-import com.example.llmgateway.domain.model.FailureClass
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.AttemptKind
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.GatewayResponse
+import com.example.llmgateway.domain.routing.RoutingPlan
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.TimeoutException
 import java.util.UUID
+import java.util.concurrent.TimeoutException
 
 class DefaultCompleteChatOperation(
     private val routePlanner: RoutePlannerPort,
@@ -26,9 +27,10 @@ class DefaultCompleteChatOperation(
 
     override fun execute(request: CanonicalChatRequest, context: RequestContext): GatewayResponse {
         val budget = attemptPolicy.newBudget()
+        var attemptKind = AttemptKind.INITIAL
         var excluded = emptySet<DeploymentId>()
         var lastFailure: AttemptFailureException? = null
-        var plan = plan(request, context, excluded)
+        val plan = plan(request, context, excluded)
 
         while (budget.attempts < attemptPolicy.maxTotalAttempts) {
             if (remaining(context).isZero || remaining(context).isNegative) {
@@ -41,7 +43,7 @@ class DefaultCompleteChatOperation(
 
             while (budget.startAttempt()) {
                 try {
-                    return attemptOperator.execute(request, context, deployment, budget.attempts)
+                    return attemptOperator.execute(request, context, deployment, budget.attempts, attemptKind, plan.pricing[deployment.id])
                         .toGatewayResponse(request)
                 } catch (error: AttemptFailureException) {
                     lastFailure = error
@@ -61,6 +63,7 @@ class DefaultCompleteChatOperation(
                     if (delay != null) {
                         attemptPolicy.await(delay)
                         retryIndex += 1
+                        attemptKind = AttemptKind.RETRY
                         continue
                     }
 
@@ -77,7 +80,7 @@ class DefaultCompleteChatOperation(
                         throw terminalError(context, error)
                     }
                     excluded = nextExcluded
-                    plan = plan(request, context, excluded)
+                    attemptKind = AttemptKind.FALLBACK
                     break
                 }
             }
@@ -111,7 +114,7 @@ class DefaultCompleteChatOperation(
         )
 }
 
-private fun com.example.llmgateway.domain.model.ProviderResponse.toGatewayResponse(
+private fun com.example.llmgateway.domain.inference.chat.ProviderResponse.toGatewayResponse(
     request: CanonicalChatRequest,
 ) = GatewayResponse(
     id = "chatcmpl_${UUID.randomUUID().toString().replace("-", "")}",

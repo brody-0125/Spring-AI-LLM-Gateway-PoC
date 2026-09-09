@@ -3,9 +3,9 @@ package com.example.llmgateway.application
 import com.example.llmgateway.application.policy.DefaultFailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
 import com.example.llmgateway.application.policy.GatewayDeadlineExceededException
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.ProviderException
 import com.example.llmgateway.core.primitive.Vendor
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.ProviderException
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.net.SocketTimeoutException

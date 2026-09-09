@@ -1,10 +1,10 @@
 package com.example.llmgateway.application.operator
 
-import com.example.llmgateway.application.port.out.OutputGuardrailPort
 import com.example.llmgateway.application.policy.GatewayErrorFactory
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.GuardrailDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.policy.GuardrailDecision
 
 class DefaultOutputGuardrailSession(
     private val guardrail: OutputGuardrailPort,

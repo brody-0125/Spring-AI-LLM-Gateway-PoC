@@ -3,8 +3,8 @@ package com.example.llmgateway.application.operator
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.port.out.InputGuardrailPort
 import com.example.llmgateway.application.port.out.RateLimiterPort
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
 
 class DefaultRequestAdmissionOperator(
     private val rateLimiter: RateLimiterPort,
@@ -26,7 +26,7 @@ class DefaultRequestAdmissionOperator(
 
         val decision = try {
             guardrail.inspect(request, context)
-        } catch (error: com.example.llmgateway.domain.model.GatewayException) {
+        } catch (error: com.example.llmgateway.domain.error.GatewayException) {
             throw error
         } catch (error: Exception) {
             throw errorFactory.guardrailUnavailable(context, error)

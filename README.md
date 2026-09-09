@@ -2,6 +2,10 @@
 
 A Spring MVC LLM gateway built on JDK 21 virtual threads and Spring AI. Clients select a logical model group, while the gateway selects an available deployment across OpenAI, AWS Bedrock Converse, and OpenRouter.
 
+Implementation checkpoint: production Chat now requires an explicit budget identity mapping, an owned grant/service limit, a verified billable model ceiling and complete prices. No funds or profiles are enabled automatically. The grant administration/import workflow and real database fault verification are still pending, so the startup commands below do not by themselves enable funded inference. See [accounting migration and activation limits](docs/design/execution-accounting-migration.md).
+
+Request completion is retained in an execution journal and durable outbox. The usage-projection worker is pending; new requests do not synchronously refresh the legacy request aggregate table. The completion reserve defaults to 10 seconds, shared between attempt settlement and request recording.
+
 ## Features
 
 - Provider-neutral `POST /v1/chat/completions` with JSON and Server-Sent Events (SSE)
@@ -31,10 +35,16 @@ $env:MANAGEMENT_SERVER_PORT = "8081"
 $env:OPENAI_API_KEY = "<openai-api-key>"
 $env:OPENAI_MODEL = "gpt-4o-mini"
 
+# Explicit management step: inserts missing deployments and their initial pricing.
+.\gradlew.bat :llm-gateway-app:bootRun --args="seed-registry" --no-daemon
 .\gradlew.bat :llm-gateway-app:bootRun --no-daemon
 ```
 
 Replace all placeholder values. Inject credentials through a secret manager or Kubernetes Secret.
+
+Normal startup never seeds or overwrites the managed registry or pricing. The seed command runs without an HTTP server or provider clients; existing deployments and prices are left unchanged. Use it with authorized management database credentials, inspect its created/existing counts, and then start the gateway. An empty registry has no routable deployments. See [registry initialization](docs/design/registry-seed-operations.md) for migration and recovery limits.
+
+Omitted or empty prices are unknown; an explicit `0` is free. Rate-card calculations are estimates, not provider-reported charges. See [usage and pricing semantics](docs/design/usage-pricing-operations.md) for normalization, precision, and migration limits.
 
 The management server defaults to port `8081`; keep it on an internal network and expose only the endpoints required by the operations platform.
 
@@ -85,7 +95,7 @@ Invoke-RestMethod http://localhost:8080/internal/v1/routing `
   -Body '{"overrides":[{"id":"openai-primary","enabled":false},{"id":"openai-secondary","weight":2}]}'
 ```
 
-PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions. Redis uses an atomic Lua token bucket for rate limiting and a Lua-based open/half-open circuit breaker. Each alternative deployment selection re-evaluates the current registry and circuit state. Provider credentials and model clients are loaded at startup; runtime credential replacement is not exposed.
+PostgreSQL stores deployment metadata, runtime overrides, and snapshot versions. Each execution captures a consistent routing and pricing view; retries and fallback use that same view. The existing enabled flag is checked separately before every attempt as an emergency switch, while Redis circuit acquisition checks current health. Redis also enforces the rate limit through an atomic Lua token bucket. Provider credentials and model clients are loaded at startup; runtime credential replacement is not exposed. See [execution snapshots](docs/design/execution-snapshot-operations.md) for consistency and revocation limits.
 
 ## HTTP contract
 

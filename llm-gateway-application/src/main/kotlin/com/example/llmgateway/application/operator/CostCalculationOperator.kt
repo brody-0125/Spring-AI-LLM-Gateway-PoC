@@ -1,10 +1,9 @@
 package com.example.llmgateway.application.operator
 
-import com.example.llmgateway.domain.model.Cost
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.Usage
-import java.time.Instant
+import com.example.llmgateway.domain.accounting.Cost
+import com.example.llmgateway.domain.accounting.PricingSnapshot
+import com.example.llmgateway.domain.accounting.Usage
 
 interface CostCalculationOperator {
-    fun calculate(deployment: Deployment, usage: Usage, at: Instant): Cost
+    fun calculate(pricing: PricingSnapshot?, usage: Usage): Cost
 }

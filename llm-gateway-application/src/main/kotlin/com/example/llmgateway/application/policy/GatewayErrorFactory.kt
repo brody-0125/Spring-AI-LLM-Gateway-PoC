@@ -1,11 +1,11 @@
 package com.example.llmgateway.application.policy
 
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.GatewayError
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.GuardrailDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.GatewayError
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.policy.GuardrailDecision
 import java.time.Duration
 
 class GatewayErrorFactory(

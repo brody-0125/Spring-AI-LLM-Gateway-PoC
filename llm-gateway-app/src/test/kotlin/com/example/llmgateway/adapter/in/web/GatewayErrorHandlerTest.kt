@@ -1,9 +1,9 @@
 package com.example.llmgateway.adapter.`in`.web
 
 import com.example.llmgateway.core.primitive.RequestId
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.GatewayError
-import com.example.llmgateway.domain.model.GatewayException
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.GatewayError
+import com.example.llmgateway.domain.error.GatewayException
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import org.springframework.http.HttpStatus
@@ -11,6 +11,17 @@ import org.springframework.http.HttpStatus
 class GatewayErrorHandlerTest : FunSpec({
     val handler = GatewayErrorHandler()
     val requestId = RequestId("req-error-test")
+
+    test("budget exhaustion is 429 without inventing an automatic reset") {
+        val response = handler.handle(GatewayException(GatewayError(
+            type = "budget_exceeded", code = "BUDGET_EXCEEDED", category = ErrorCategory.TRANSIENT,
+            message = "The available budget does not permit this request", retryable = false, requestId = requestId,
+        )))
+        response.statusCode shouldBe HttpStatus.TOO_MANY_REQUESTS
+        response.body?.error?.code shouldBe "BUDGET_EXCEEDED"
+        response.body?.error?.retryable shouldBe false
+        response.headers.getFirst("Retry-After") shouldBe null
+    }
 
     test("maps gateway timeout to 504 without leaking internal details") {
         val response = handler.handle(

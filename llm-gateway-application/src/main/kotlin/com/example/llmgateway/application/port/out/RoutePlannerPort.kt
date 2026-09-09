@@ -1,9 +1,9 @@
 package com.example.llmgateway.application.port.out
 
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.RequestContext
-import com.example.llmgateway.domain.model.RoutingPlan
 import com.example.llmgateway.core.primitive.DeploymentId
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.routing.RoutingPlan
 
 interface RoutePlannerPort {
     fun plan(request: CanonicalChatRequest, context: RequestContext): RoutingPlan
@@ -20,6 +20,7 @@ interface RoutePlannerPort {
             primary = candidates.first(),
             alternates = candidates.drop(1),
             snapshotVersion = current.snapshotVersion,
+            pricing = current.pricing,
         )
     }
 }

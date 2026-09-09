@@ -1,6 +1,6 @@
 package com.example.llmgateway.application.operator
 
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.execution.RequestContext
 
 object NoOpOutputGuardrailOperator : OutputGuardrailOperator {
     override fun inspectComplete(output: String, context: RequestContext) = Unit

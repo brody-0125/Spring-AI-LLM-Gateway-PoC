@@ -1,14 +1,12 @@
 package com.example.llmgateway.adapter.out.springai
 
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.ProviderException
-import com.example.llmgateway.domain.model.ProviderFailurePhase
-import com.example.llmgateway.domain.model.RequestDisposition
+import com.example.llmgateway.domain.error.ProviderException
+import com.example.llmgateway.domain.error.ProviderFailurePhase
+import com.example.llmgateway.domain.error.RequestDisposition
 import com.openai.errors.OpenAIIoException
 import com.openai.errors.OpenAIRetryableException
 import com.openai.errors.OpenAIServiceException
-import software.amazon.awssdk.awscore.exception.AwsServiceException
-import software.amazon.awssdk.core.exception.SdkClientException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -20,6 +18,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLException
+import software.amazon.awssdk.awscore.exception.AwsServiceException
+import software.amazon.awssdk.core.exception.SdkClientException
 
 internal object ProviderFailureMapper {
     fun map(error: Throwable, vendor: Vendor): ProviderException {

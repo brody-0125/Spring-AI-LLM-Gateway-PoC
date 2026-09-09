@@ -1,10 +1,11 @@
 package com.example.llmgateway.application.port.out
 
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.AttemptContext
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.ProviderChunk
-import com.example.llmgateway.domain.model.ProviderResponse
+import com.example.llmgateway.domain.execution.AttemptContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.ProviderChunk
+import com.example.llmgateway.domain.inference.chat.ProviderResponse
+import com.example.llmgateway.domain.routing.Deployment
+import com.example.llmgateway.domain.stream.CloseableStream
 
 interface ProviderInvokerPort {
     fun complete(
@@ -17,5 +18,5 @@ interface ProviderInvokerPort {
         deployment: Deployment,
         request: CanonicalChatRequest,
         attempt: AttemptContext,
-    ): Sequence<ProviderChunk>
+    ): CloseableStream<ProviderChunk>
 }

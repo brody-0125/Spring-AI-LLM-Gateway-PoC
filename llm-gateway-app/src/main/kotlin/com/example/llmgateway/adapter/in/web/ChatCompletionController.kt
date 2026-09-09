@@ -1,16 +1,28 @@
 package com.example.llmgateway.adapter.`in`.web
 
-import com.example.llmgateway.application.port.`in`.ChatCompletionCommandIn
-import com.example.llmgateway.application.port.`in`.ChatCompletionQueryIn
+import com.example.llmgateway.application.port.`in`.CompleteChatCommandIn
+import com.example.llmgateway.application.port.`in`.StreamChatCommandIn
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
+import com.example.llmgateway.application.port.out.ObservationContextPort
 import com.example.llmgateway.contract.ChatCompletionRequest
 import com.example.llmgateway.core.primitive.RequestId
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.GatewayError
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.GatewayError
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.GatewayCompleteEvent
+import com.example.llmgateway.domain.inference.chat.GatewayEvent
+import com.example.llmgateway.domain.observation.NoOpObservationContext
+import com.example.llmgateway.domain.observation.withObservationScope
+import com.example.llmgateway.domain.stream.CloseableStream
 import jakarta.servlet.http.HttpServletResponse
+import java.time.Duration
+import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.PostMapping
@@ -19,18 +31,14 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import org.springframework.beans.factory.annotation.Value
-import java.time.Duration
-import java.time.Instant
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicReference
 
 @RestController
 @RequestMapping("/v1")
 class ChatCompletionController(
-    private val chatCompletionQueryIn: ChatCompletionQueryIn,
-    private val chatCompletionCommandIn: ChatCompletionCommandIn,
+    private val completeChatCommandIn: CompleteChatCommandIn,
+    private val streamChatCommandIn: StreamChatCommandIn,
     private val clientAuthenticationPort: ClientAuthenticationPort,
+    private val observationContext: ObservationContextPort,
     @param:Value("\${gateway.request.timeout:60s}") private val requestTimeout: Duration,
 ) {
 
@@ -76,7 +84,7 @@ class ChatCompletionController(
         return if (canonicalRequest.stream) {
             stream(canonicalRequest, context)
         } else {
-            GatewayResponseMapper.toContract(chatCompletionQueryIn.complete(canonicalRequest, context))
+            GatewayResponseMapper.toContract(completeChatCommandIn.complete(canonicalRequest, context))
         }
     }
 
@@ -85,9 +93,14 @@ class ChatCompletionController(
         context: RequestContext,
     ): SseEmitter {
         val emitter = SseEmitter(remainingTimeoutMillis(context.deadline))
+        val captured = runCatching { observationContext.capture() }.getOrDefault(NoOpObservationContext)
         val worker = AtomicReference<Thread>()
+        val activeStream = AtomicReference<CloseableStream<GatewayEvent>?>()
+        val cancelled = AtomicBoolean()
         val cancelWorker: () -> Unit = {
+            cancelled.set(true)
             worker.get()?.interrupt()
+            runCatching { activeStream.get()?.cancel() }
         }
         emitter.onCompletion(cancelWorker)
         emitter.onTimeout {
@@ -99,27 +112,45 @@ class ChatCompletionController(
         }
 
         val thread = Thread.ofVirtual()
-            .name("llm-gateway-sse-${context.requestId.value}")
-            .start {
-                try {
-                    chatCompletionCommandIn.stream(request, context).forEach { event ->
-                        emitter.send(SseEventMapper.toSseEvent(event))
-                    }
-                    emitter.send(SseEventMapper.doneEvent())
-                    emitter.complete()
-                } catch (error: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    emitter.complete()
-                } catch (error: Exception) {
-                    if (error is GatewayException) {
-                        runCatching { emitter.send(SseEventMapper.errorEvent(error)) }
+            .name("llm-gateway-sse-${context.executionId.value}")
+            .unstarted {
+                captured.withObservationScope {
+                    try {
+                        val stream = streamChatCommandIn.stream(request, context)
+                        activeStream.set(stream)
+                        var completion: GatewayCompleteEvent? = null
+                        stream.use {
+                            if (cancelled.get()) return@withObservationScope
+                            it.forEach { event ->
+                                check(completion == null) { "Unexpected event after stream completion" }
+                                if (event is GatewayCompleteEvent) completion = event
+                                else emitter.send(SseEventMapper.toSseEvent(event))
+                            }
+                        }
+                        if (!cancelled.get()) {
+                            emitter.send(SseEventMapper.toSseEvent(checkNotNull(completion) { "Missing stream completion" }))
+                            emitter.send(SseEventMapper.doneEvent())
+                        }
                         emitter.complete()
-                    } else {
-                        emitter.completeWithError(error)
+                    } catch (error: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        emitter.complete()
+                    } catch (error: Exception) {
+                        if (cancelled.get() || error is java.util.concurrent.CancellationException) {
+                            emitter.complete()
+                        } else if (error is GatewayException) {
+                            runCatching { emitter.send(SseEventMapper.errorEvent(error)) }
+                            emitter.complete()
+                        } else {
+                            emitter.completeWithError(error)
+                        }
+                    } finally {
+                        runCatching { activeStream.getAndSet(null)?.close() }
                     }
                 }
             }
         worker.set(thread)
+        thread.start()
         return emitter
     }
 

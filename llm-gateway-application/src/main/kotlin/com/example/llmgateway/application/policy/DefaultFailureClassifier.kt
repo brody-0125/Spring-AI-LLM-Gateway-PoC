@@ -1,9 +1,9 @@
 package com.example.llmgateway.application.policy
 
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.ProviderException
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.error.ProviderException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException

@@ -35,7 +35,11 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Normal events contain a JSON ChatCompletionChunk. Error events use event: error and contain ErrorResponse. Successful streams end with data: [DONE].
+                description: >-
+                  Normal events contain a JSON ChatCompletionChunk. Error events use event: error and contain ErrorResponse.
+                  The success terminal and data: [DONE] follow successful accounting writes and stream cleanup.
+                  A storage failure ends with OUTCOME_UNKNOWN, retryable=false, without a success terminal or DONE.
+                  Earlier content cannot be retracted.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -49,7 +53,21 @@ paths:
         '500':
           $ref: '#/components/responses/GatewayError'
         '503':
-          $ref: '#/components/responses/GatewayError'
+          description: Gateway unavailable, or OUTCOME_UNKNOWN if durable completion could not be confirmed. OUTCOME_UNKNOWN is not retryable and has no Retry-After header; disable SDK automatic retries for generation requests.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  type: outcome_unknown
+                  code: OUTCOME_UNKNOWN
+                  message: The gateway could not confirm durable completion; do not repeat this generation request
+                  retryable: false
+                  request_id: req-example
         '504':
           $ref: '#/components/responses/GatewayTimeout'
 components:
@@ -125,7 +143,10 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     RateLimited:
-      description: Gateway or provider rate limit.
+      description: >-
+        Gateway/provider rate limit or BUDGET_EXCEEDED. A budget that requires
+        administrative funding returns retryable=false without Retry-After;
+        clients must not infer an automatic reset or retry from HTTP 429 alone.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'

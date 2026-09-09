@@ -1,7 +1,7 @@
 package com.example.llmgateway.adapter.`in`.web
 
-import com.example.llmgateway.domain.model.GatewayResponse
-import com.example.llmgateway.domain.model.Usage
+import com.example.llmgateway.domain.accounting.Usage
+import com.example.llmgateway.domain.inference.chat.GatewayResponse
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe

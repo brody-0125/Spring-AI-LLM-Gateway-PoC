@@ -3,8 +3,8 @@ package com.example.llmgateway.application
 import com.example.llmgateway.application.operator.AttemptFailureException
 import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.FailurePolicy
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.RequestDisposition
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.RequestDisposition
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -73,6 +73,14 @@ class AttemptPolicyTest : FunSpec({
         delay.shouldNotBeNull()
         delay shouldBe Duration.ofMillis(400)
         policy.delay(failure.retryAfter, retryIndex = 0, remaining = Duration.ofMillis(300)) shouldBe null
+    }
+
+    test("provider deadline leaves the configured completion window inside the request deadline") {
+        val policy = AttemptPolicy(FailurePolicy(), perAttemptTimeout = Duration.ofSeconds(30), completionReserve = Duration.ofSeconds(5))
+        val started = Instant.parse("2026-01-01T00:00:00Z")
+        policy.deadlineFor(started.plusSeconds(10), started) shouldBe started.plusSeconds(5)
+        policy.deadlineFor(started.plusSeconds(60), started) shouldBe started.plusSeconds(30)
+        policy.deadlineFor(started.plusSeconds(2), started).isBefore(started) shouldBe true
     }
 
     test("attempt deadline is capped by both request and per-attempt deadlines") {

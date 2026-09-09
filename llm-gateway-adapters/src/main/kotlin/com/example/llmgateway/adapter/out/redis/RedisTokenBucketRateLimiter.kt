@@ -1,18 +1,18 @@
 package com.example.llmgateway.adapter.out.redis
 
 import com.example.llmgateway.application.port.out.RateLimiterPort
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.RateLimitDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.policy.RateLimitDecision
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
-import org.slf4j.LoggerFactory
-import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.data.redis.core.script.DefaultRedisScript
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.HexFormat
+import org.slf4j.LoggerFactory
+import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.core.script.DefaultRedisScript
 
 class RedisTokenBucketRateLimiter(
     private val redisTemplate: StringRedisTemplate,

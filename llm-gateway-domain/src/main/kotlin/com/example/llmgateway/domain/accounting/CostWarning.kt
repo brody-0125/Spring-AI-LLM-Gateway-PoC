@@ -1,0 +1,13 @@
+package com.example.llmgateway.domain.accounting
+
+enum class CostWarning {
+    USAGE_UNAVAILABLE,
+    PARTIAL_USAGE,
+    PRICING_UNAVAILABLE,
+    INCONSISTENT_USAGE,
+    MISSING_INPUT_PRICE,
+    MISSING_OUTPUT_PRICE,
+    MISSING_CACHE_READ_PRICE,
+    MISSING_CACHE_WRITE_PRICE,
+    MISSING_COMPONENT_PRICE,
+}

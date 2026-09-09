@@ -1,7 +1,7 @@
 package com.example.llmgateway.application.port.out
 
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.PricingSnapshot
+import com.example.llmgateway.domain.accounting.PricingSnapshot
+import com.example.llmgateway.domain.routing.Deployment
 import java.time.Instant
 
 interface PricingCatalogPort {

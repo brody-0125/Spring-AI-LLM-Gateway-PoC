@@ -14,9 +14,9 @@ class ProviderProperties {
     var connectionTimeout: Duration = Duration.ofSeconds(5)
     var readTimeout: Duration = Duration.ofSeconds(60)
     var connectionAcquisitionTimeout: Duration = Duration.ofSeconds(5)
-    var inputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
-    var outputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
-    var cacheReadInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
-    var cacheWriteInputCostPer1kUsd: BigDecimal = BigDecimal.ZERO
+    var inputCostPer1kUsd: BigDecimal? = null
+    var outputCostPer1kUsd: BigDecimal? = null
+    var cacheReadInputCostPer1kUsd: BigDecimal? = null
+    var cacheWriteInputCostPer1kUsd: BigDecimal? = null
     var deployments: List<ProviderDeploymentProperties> = emptyList()
 }

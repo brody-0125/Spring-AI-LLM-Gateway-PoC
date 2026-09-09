@@ -3,9 +3,9 @@ package com.example.llmgateway.adapter.`in`.web
 import com.example.llmgateway.contract.ChatCompletionRequest
 import com.example.llmgateway.core.primitive.MessageRole
 import com.example.llmgateway.core.primitive.ModelGroup
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.CanonicalMessage
-import com.example.llmgateway.domain.model.CanonicalOptions
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.CanonicalMessage
+import com.example.llmgateway.domain.inference.chat.CanonicalOptions
 import java.util.Locale
 
 internal object ChatCompletionRequestMapper {

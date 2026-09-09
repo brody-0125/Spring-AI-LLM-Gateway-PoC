@@ -9,6 +9,9 @@ management:
     port: 0
 
 gateway:
+  accounting:
+    # This profile uses the in-process journal fixture, not financial database writes.
+    completion-window: 0s
   security:
     enabled: false
   rate-limit:

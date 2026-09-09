@@ -3,57 +3,61 @@ package com.example.llmgateway.adapter.out.springai
 import com.example.llmgateway.adapter.out.admission.ConfigurableInputGuardrailAdapter
 import com.example.llmgateway.adapter.out.admission.ConfigurableOutputGuardrailAdapter
 import com.example.llmgateway.adapter.out.observability.MicrometerAttemptObserver
-import com.example.llmgateway.adapter.out.postgres.PostgresAttemptAccountingAdapter
+import com.example.llmgateway.adapter.out.observability.MicrometerObservationContextAdapter
+import com.example.llmgateway.adapter.out.observability.MicrometerRequestObserver
+import com.example.llmgateway.adapter.out.postgres.PostgresAttemptJournalAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresDeploymentRegistryAdapter
 import com.example.llmgateway.adapter.out.postgres.PostgresPricingCatalogAdapter
-import com.example.llmgateway.adapter.out.postgres.PostgresRequestAccountingAdapter
+import com.example.llmgateway.adapter.out.postgres.PostgresExecutionJournalAdapter
 import com.example.llmgateway.adapter.out.pricing.ConfiguredPricingCatalogAdapter
-import com.example.llmgateway.adapter.out.observability.MicrometerRequestObserver
 import com.example.llmgateway.adapter.out.redis.RedisCircuitBreakerAdapter
 import com.example.llmgateway.adapter.out.redis.RedisTokenBucketRateLimiter
 import com.example.llmgateway.adapter.out.security.StaticApiKeyAuthenticationAdapter
 import com.example.llmgateway.application.operator.CostCalculationOperator
 import com.example.llmgateway.application.operator.DefaultCostCalculationOperator
-import com.example.llmgateway.application.port.out.AttemptAccountingPort
+import com.example.llmgateway.application.port.out.AttemptJournalPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
 import com.example.llmgateway.application.port.out.InputGuardrailPort
-import com.example.llmgateway.application.port.out.OutputGuardrailPort
-import com.example.llmgateway.application.port.out.ProviderInvokerPort
-import com.example.llmgateway.application.port.out.PricingCatalogPort
-import com.example.llmgateway.application.port.out.RateLimiterPort
-import com.example.llmgateway.application.port.out.NoOpAttemptAccountingPort
 import com.example.llmgateway.application.port.out.NoOpRequestAccountingPort
+import com.example.llmgateway.application.port.out.ObservationContextPort
+import com.example.llmgateway.application.port.out.OutputGuardrailPort
+import com.example.llmgateway.application.port.out.PricingCatalogPort
+import com.example.llmgateway.application.port.out.ProviderInvokerPort
+import com.example.llmgateway.application.port.out.RateLimiterPort
 import com.example.llmgateway.application.port.out.RequestAccountingPort
 import com.example.llmgateway.application.port.out.RequestObserverPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.GatewayPrincipal
+import com.example.llmgateway.domain.identity.GatewayPrincipal
+import com.example.llmgateway.domain.routing.Deployment
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.observation.ObservationRegistry
-import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.ai.bedrock.converse.BedrockChatOptions
+import org.springframework.ai.bedrock.converse.BedrockProxyChatModel
+import org.springframework.ai.chat.model.ChatModel
+import org.springframework.ai.openai.OpenAiChatModel
+import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.DependsOn
 import org.springframework.context.annotation.Profile
 import org.springframework.core.env.Environment
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.support.TransactionTemplate
-import org.springframework.ai.bedrock.converse.BedrockChatOptions
-import org.springframework.ai.bedrock.converse.BedrockProxyChatModel
-import org.springframework.ai.chat.model.ChatModel
-import org.springframework.ai.openai.OpenAiChatModel
-import org.springframework.ai.openai.OpenAiChatOptions
 import software.amazon.awssdk.regions.Region
 
 @Configuration(proxyBeanMethods = false)
 class SpringAiVendorConfiguration {
+
+    @Bean
+    fun observationContextPort(registry: ObservationRegistry): ObservationContextPort =
+        MicrometerObservationContextAdapter(registry)
 
     @Bean
     @ConfigurationProperties("gateway.providers")
@@ -63,9 +67,11 @@ class SpringAiVendorConfiguration {
     fun configuredProviders(
         properties: GatewayProviderProperties,
         observationRegistry: ObservationRegistry,
+        environment: Environment,
     ): ConfiguredProviders {
         val deployments = mutableListOf<Deployment>()
         val models = mutableMapOf<DeploymentId, ChatModel>()
+        val buildClients = !environment.acceptsProfiles(org.springframework.core.env.Profiles.of("registry-seed"))
 
         addOpenAiCompatible(
             properties = properties.openai,
@@ -77,6 +83,7 @@ class SpringAiVendorConfiguration {
             defaultId = "openai-default",
             defaultModel = "gpt-4o-mini",
             defaultBaseUrl = "https://api.openai.com/v1",
+            buildClients = buildClients,
         )
         addOpenAiCompatible(
             properties = properties.openrouter,
@@ -88,8 +95,9 @@ class SpringAiVendorConfiguration {
             defaultId = "openrouter-default",
             defaultModel = "openai/gpt-4o-mini",
             defaultBaseUrl = "https://openrouter.ai/api/v1",
+            buildClients = buildClients,
         )
-        addBedrock(properties.bedrock, observationRegistry, deployments, models)
+        addBedrock(properties.bedrock, observationRegistry, deployments, models, buildClients)
 
         return ConfiguredProviders(deployments, models)
     }
@@ -98,35 +106,28 @@ class SpringAiVendorConfiguration {
     @Profile("!test")
     @DependsOn("flywayInitializer")
     fun deploymentRegistry(
-        providers: ConfiguredProviders,
         jdbcTemplate: JdbcTemplate,
         transactionManager: PlatformTransactionManager,
     ): PostgresDeploymentRegistryAdapter = PostgresDeploymentRegistryAdapter(
         jdbcTemplate = jdbcTemplate,
         transactionManager = transactionManager,
-        configuredDeployments = providers.deployments,
-    ).also { it.initialize() }
+    )
 
     @Bean
     @Profile("!test")
     @DependsOn("flywayInitializer")
     fun pricingCatalog(
-        providers: ConfiguredProviders,
         jdbcTemplate: JdbcTemplate,
-        transactionManager: PlatformTransactionManager,
     ): PostgresPricingCatalogAdapter = PostgresPricingCatalogAdapter(
         jdbcTemplate = jdbcTemplate,
-        transactionTemplate = TransactionTemplate(transactionManager),
-        configuredDeployments = providers.deployments,
-    ).also { it.initialize() }
+    )
 
     @Bean
     @Profile("test")
     fun pricingCatalogForTest(): PricingCatalogPort = ConfiguredPricingCatalogAdapter()
 
     @Bean
-    fun costCalculationOperator(pricingCatalog: PricingCatalogPort): CostCalculationOperator =
-        DefaultCostCalculationOperator(pricingCatalog)
+    fun costCalculationOperator(): CostCalculationOperator = DefaultCostCalculationOperator()
 
     @Bean
     @Profile("!test")
@@ -135,15 +136,18 @@ class SpringAiVendorConfiguration {
         jdbcTemplate: JdbcTemplate,
         transactionManager: PlatformTransactionManager,
         meterRegistry: MeterRegistry,
-    ): AttemptAccountingPort = PostgresAttemptAccountingAdapter(
-        jdbcTemplate = jdbcTemplate,
-        transactionTemplate = TransactionTemplate(transactionManager),
+        @org.springframework.beans.factory.annotation.Value("\${gateway.accounting.completion-window:10s}") completionWindow: java.time.Duration,
+    ): AttemptJournalPort = PostgresAttemptJournalAdapter(
+        jdbc = jdbcTemplate,
+        transactionManager = transactionManager,
+        connectionWait = java.time.Duration.ofMillis(
+            requireNotNull(jdbcTemplate.dataSource).unwrap(com.zaxxer.hikari.HikariDataSource::class.java).let {
+                Math.addExact(it.connectionTimeout, it.validationTimeout)
+            },
+        ),
         meterRegistry = meterRegistry,
+        completionWindow = completionWindow,
     )
-
-    @Bean
-    @Profile("test")
-    fun attemptAccountingPortForTest(): AttemptAccountingPort = NoOpAttemptAccountingPort
 
     @Bean
     @Profile("!test")
@@ -152,9 +156,16 @@ class SpringAiVendorConfiguration {
         jdbcTemplate: JdbcTemplate,
         transactionManager: PlatformTransactionManager,
         meterRegistry: MeterRegistry,
-    ): RequestAccountingPort = PostgresRequestAccountingAdapter(
-        jdbcTemplate = jdbcTemplate,
-        transactionTemplate = TransactionTemplate(transactionManager),
+        @org.springframework.beans.factory.annotation.Value("\${gateway.accounting.completion-window:10s}") completionWindow: java.time.Duration,
+    ): RequestAccountingPort = PostgresExecutionJournalAdapter(
+        jdbc = jdbcTemplate,
+        transactionManager = transactionManager,
+        connectionWait = java.time.Duration.ofMillis(
+            requireNotNull(jdbcTemplate.dataSource).unwrap(com.zaxxer.hikari.HikariDataSource::class.java).let {
+                Math.addExact(it.connectionTimeout, it.validationTimeout)
+            },
+        ),
+        completionWindow = completionWindow,
         meterRegistry = meterRegistry,
     )
 
@@ -262,6 +273,7 @@ class SpringAiVendorConfiguration {
         defaultId: String,
         defaultModel: String,
         defaultBaseUrl: String,
+        buildClients: Boolean,
     ) {
         if (!properties.enabled) return
         definitions(properties, defaultId, defaultModel).forEach { definition ->
@@ -269,17 +281,19 @@ class SpringAiVendorConfiguration {
             if (key.isBlank()) return@forEach
             val id = DeploymentId(definition.id)
             val model = definition.model.ifBlank { properties.model.ifBlank { defaultModel } }
-            val options = OpenAiChatOptions.builder()
-                .apiKey(key)
-                .baseUrl(definition.baseUrl.ifBlank { properties.baseUrl.ifBlank { defaultBaseUrl } })
-                .model(model)
-                .timeout(definition.timeout ?: properties.timeout)
-                .maxRetries(0)
-                .build()
-            models[id] = OpenAiChatModel.builder()
-                .options(options)
-                .observationRegistry(observationRegistry)
-                .build()
+            if (buildClients) {
+                val options = OpenAiChatOptions.builder()
+                    .apiKey(key)
+                    .baseUrl(definition.baseUrl.ifBlank { properties.baseUrl.ifBlank { defaultBaseUrl } })
+                    .model(model)
+                    .timeout(definition.timeout ?: properties.timeout)
+                    .maxRetries(0)
+                    .build()
+                models[id] = OpenAiChatModel.builder()
+                    .options(options)
+                    .observationRegistry(observationRegistry)
+                    .build()
+            }
             deployments += definition.toDeployment(
                 id = id,
                 vendor = vendor,
@@ -295,24 +309,27 @@ class SpringAiVendorConfiguration {
         observationRegistry: ObservationRegistry,
         deployments: MutableList<Deployment>,
         models: MutableMap<DeploymentId, ChatModel>,
+        buildClients: Boolean,
     ) {
         if (!properties.enabled) return
         definitions(properties, "bedrock-default", "amazon.nova-micro-v1:0").forEach { definition ->
             val id = DeploymentId(definition.id)
             val model = definition.model.ifBlank { properties.model.ifBlank { "amazon.nova-micro-v1:0" } }
-            val options = BedrockChatOptions.builder().model(model).build()
-            models[id] = BedrockProxyChatModel.builder()
-                .region(Region.of(definition.region.ifBlank { properties.region.ifBlank { "us-east-1" } }))
-                .options(options)
-                .timeout(definition.timeout ?: properties.timeout)
-                .connectionTimeout(definition.connectionTimeout ?: properties.connectionTimeout)
-                .asyncReadTimeout(definition.readTimeout ?: properties.readTimeout)
-                .socketTimeout(definition.readTimeout ?: properties.readTimeout)
-                .connectionAcquisitionTimeout(
-                    definition.connectionAcquisitionTimeout ?: properties.connectionAcquisitionTimeout,
-                )
-                .observationRegistry(observationRegistry)
-                .build()
+            if (buildClients) {
+                val options = BedrockChatOptions.builder().model(model).build()
+                models[id] = BedrockProxyChatModel.builder()
+                    .region(Region.of(definition.region.ifBlank { properties.region.ifBlank { "us-east-1" } }))
+                    .options(options)
+                    .timeout(definition.timeout ?: properties.timeout)
+                    .connectionTimeout(definition.connectionTimeout ?: properties.connectionTimeout)
+                    .asyncReadTimeout(definition.readTimeout ?: properties.readTimeout)
+                    .socketTimeout(definition.readTimeout ?: properties.readTimeout)
+                    .connectionAcquisitionTimeout(
+                        definition.connectionAcquisitionTimeout ?: properties.connectionAcquisitionTimeout,
+                    )
+                    .observationRegistry(observationRegistry)
+                    .build()
+            }
             deployments += definition.toDeployment(
                 id = id,
                 vendor = Vendor.AWS_BEDROCK,

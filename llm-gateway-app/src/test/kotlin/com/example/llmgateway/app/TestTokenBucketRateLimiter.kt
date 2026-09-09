@@ -1,9 +1,9 @@
 package com.example.llmgateway.app
 
 import com.example.llmgateway.application.port.out.RateLimiterPort
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.RateLimitDecision
-import com.example.llmgateway.domain.model.RequestContext
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.policy.RateLimitDecision
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 

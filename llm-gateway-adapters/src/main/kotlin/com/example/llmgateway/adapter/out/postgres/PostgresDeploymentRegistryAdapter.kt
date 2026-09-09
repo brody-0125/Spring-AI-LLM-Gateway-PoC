@@ -1,14 +1,17 @@
 package com.example.llmgateway.adapter.out.postgres
 
+import com.example.llmgateway.application.port.out.DeploymentAvailabilityPort
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.RoutingControlPlanePort
+import com.example.llmgateway.application.port.out.RoutingSnapshotPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.Dialect
 import com.example.llmgateway.core.primitive.ModelGroup
 import com.example.llmgateway.core.primitive.Vendor
-import com.example.llmgateway.domain.model.Deployment
-import com.example.llmgateway.domain.model.DeploymentOverride
-import com.example.llmgateway.domain.model.RoutingSnapshot
+import com.example.llmgateway.domain.policy.DeploymentOverride
+import com.example.llmgateway.domain.routing.Deployment
+import com.example.llmgateway.domain.routing.RoutingSnapshot
+import java.time.Instant
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
@@ -17,30 +20,34 @@ import org.springframework.transaction.support.TransactionTemplate
 class PostgresDeploymentRegistryAdapter(
     private val jdbcTemplate: JdbcTemplate,
     transactionManager: PlatformTransactionManager,
-    configuredDeployments: List<Deployment>,
-) : DeploymentRegistryPort, RoutingControlPlanePort {
+) : DeploymentRegistryPort, RoutingControlPlanePort, RoutingSnapshotPort, DeploymentAvailabilityPort {
 
     private val writeTransaction = TransactionTemplate(transactionManager)
     private val readTransaction = TransactionTemplate(transactionManager).apply {
         isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
+        propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        isReadOnly = true
     }
-    private val configured = configuredDeployments.toList()
-
-    init {
-        require(configured.map { it.id }.distinct().size == configured.size) {
-            "configured deployment ids must be unique"
-        }
-    }
-
-    fun initialize() {
-        writeTransaction.executeWithoutResult {
-            ensureVersionRow()
-            configured.forEach(::upsertConfiguredDeployment)
-            disableDeploymentsNotConfigured()
-        }
-    }
-
     override fun snapshot(): RoutingSnapshot = readTransaction.execute { readSnapshot() }
+
+    override fun current(): RoutingSnapshot = readTransaction.execute {
+        val policy = readSnapshot()
+        val effectiveAt = Instant.now()
+        val catalog = PostgresPricingCatalogAdapter(jdbcTemplate)
+        RoutingSnapshot(
+            policy.deployments,
+            policy.version,
+            policy.deployments.associate { it.id to catalog.resolve(it, effectiveAt) },
+        )
+    }
+
+    override fun isEnabled(deploymentId: DeploymentId): Boolean = readTransaction.execute {
+        jdbcTemplate.queryForList(
+            "SELECT enabled FROM llm_gateway_deployment WHERE id = ?",
+            Boolean::class.java,
+            deploymentId.value,
+        ).singleOrNull() == true
+    }
 
     override fun update(overrides: List<DeploymentOverride>): RoutingSnapshot {
         require(overrides.isNotEmpty()) { "at least one deployment override is required" }
@@ -49,6 +56,9 @@ class PostgresDeploymentRegistryAdapter(
         }
 
         return writeTransaction.execute {
+            jdbcTemplate.queryForObject(
+                "SELECT version FROM llm_gateway_routing_version WHERE id = 1 FOR UPDATE", Long::class.java,
+            ) ?: error("Routing registry has not been migrated")
             val knownIds = jdbcTemplate.queryForList(
                 "SELECT id FROM llm_gateway_deployment",
                 String::class.java,
@@ -63,66 +73,6 @@ class PostgresDeploymentRegistryAdapter(
             )
             readSnapshot()
         }
-    }
-
-    private fun ensureVersionRow() {
-        jdbcTemplate.update(
-            """
-            INSERT INTO llm_gateway_routing_version (id, version)
-            VALUES (1, 1)
-            ON CONFLICT (id) DO NOTHING
-            """.trimIndent(),
-        )
-    }
-
-    private fun upsertConfiguredDeployment(deployment: Deployment) {
-        jdbcTemplate.update(
-            """
-            INSERT INTO llm_gateway_deployment (
-                id, vendor, dialect, model_group, model, priority, enabled, weight,
-                supports_streaming, input_cost_per_1k_usd, output_cost_per_1k_usd,
-                cache_read_input_cost_per_1k_usd, cache_write_input_cost_per_1k_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (id) DO UPDATE SET
-                vendor = EXCLUDED.vendor,
-                dialect = EXCLUDED.dialect,
-                model_group = EXCLUDED.model_group,
-                model = EXCLUDED.model,
-                priority = EXCLUDED.priority,
-                supports_streaming = EXCLUDED.supports_streaming,
-                input_cost_per_1k_usd = EXCLUDED.input_cost_per_1k_usd,
-                output_cost_per_1k_usd = EXCLUDED.output_cost_per_1k_usd,
-                cache_read_input_cost_per_1k_usd = EXCLUDED.cache_read_input_cost_per_1k_usd,
-                cache_write_input_cost_per_1k_usd = EXCLUDED.cache_write_input_cost_per_1k_usd,
-                updated_at = CURRENT_TIMESTAMP
-            """.trimIndent(),
-            deployment.id.value,
-            deployment.vendor.name,
-            deployment.dialect.name,
-            deployment.modelGroup.value,
-            deployment.model,
-            deployment.priority,
-            deployment.enabled,
-            deployment.weight,
-            deployment.supportsStreaming,
-            deployment.inputCostPer1kUsd,
-            deployment.outputCostPer1kUsd,
-            deployment.cacheReadInputCostPer1kUsd,
-            deployment.cacheWriteInputCostPer1kUsd,
-        )
-    }
-
-    private fun disableDeploymentsNotConfigured() {
-        if (configured.isEmpty()) {
-            jdbcTemplate.update("UPDATE llm_gateway_deployment SET enabled = FALSE")
-            return
-        }
-
-        val placeholders = configured.joinToString(",") { "?" }
-        jdbcTemplate.update(
-            "UPDATE llm_gateway_deployment SET enabled = FALSE WHERE id NOT IN ($placeholders)",
-            *configured.map { it.id.value }.toTypedArray(),
-        )
     }
 
     private fun applyOverride(override: DeploymentOverride) {

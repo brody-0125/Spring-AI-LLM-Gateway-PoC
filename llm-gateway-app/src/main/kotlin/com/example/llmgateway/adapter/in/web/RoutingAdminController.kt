@@ -9,10 +9,11 @@ import com.example.llmgateway.application.port.`in`.RoutingUpdateCommand
 import com.example.llmgateway.application.port.out.ClientAuthenticationPort
 import com.example.llmgateway.core.primitive.DeploymentId
 import com.example.llmgateway.core.primitive.RequestId
-import com.example.llmgateway.domain.model.ErrorCategory
-import com.example.llmgateway.domain.model.GatewayError
-import com.example.llmgateway.domain.model.GatewayException
+import com.example.llmgateway.domain.error.ErrorCategory
+import com.example.llmgateway.domain.error.GatewayError
+import com.example.llmgateway.domain.error.GatewayException
 import jakarta.servlet.http.HttpServletResponse
+import java.util.UUID
 import org.springframework.http.HttpHeaders
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PutMapping
@@ -20,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import java.util.UUID
 
 @RestController
 @RequestMapping("/internal/v1/routing")
@@ -94,7 +94,7 @@ class RoutingAdminController(
         RequestId(value?.takeIf(String::isNotBlank) ?: "req_${UUID.randomUUID()}")
 }
 
-private fun DeploymentOverrideDto.toDomain() = com.example.llmgateway.domain.model.DeploymentOverride(
+private fun DeploymentOverrideDto.toDomain() = com.example.llmgateway.domain.policy.DeploymentOverride(
     id = DeploymentId(id),
     enabled = enabled,
     priority = priority,

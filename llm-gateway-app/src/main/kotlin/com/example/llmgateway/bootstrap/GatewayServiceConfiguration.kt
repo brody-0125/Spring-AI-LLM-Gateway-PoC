@@ -1,12 +1,14 @@
 package com.example.llmgateway.bootstrap
 
-import com.example.llmgateway.application.port.`in`.ChatCompletionCommandIn
-import com.example.llmgateway.application.port.`in`.ChatCompletionQueryIn
+import com.example.llmgateway.application.port.`in`.StreamChatCommandIn
+import com.example.llmgateway.application.port.`in`.CompleteChatCommandIn
 import com.example.llmgateway.application.port.`in`.RoutingCommandIn
 import com.example.llmgateway.application.port.`in`.RoutingQueryIn
-import com.example.llmgateway.application.port.out.AttemptAccountingPort
+import com.example.llmgateway.application.port.out.AttemptJournalPort
 import com.example.llmgateway.application.port.out.CircuitBreakerPort
 import com.example.llmgateway.application.port.out.AttemptObserverPort
+import com.example.llmgateway.application.port.out.DeploymentAvailabilityPort
+import com.example.llmgateway.application.port.out.RoutingSnapshotPort
 import com.example.llmgateway.application.port.out.DeploymentRegistryPort
 import com.example.llmgateway.application.port.out.InputGuardrailPort
 import com.example.llmgateway.application.port.out.OutputGuardrailPort
@@ -36,8 +38,8 @@ import com.example.llmgateway.application.policy.FailureClassifier
 import com.example.llmgateway.application.policy.FailurePolicy
 import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
-import com.example.llmgateway.application.service.DefaultChatCompletionCommandService
-import com.example.llmgateway.application.service.DefaultChatCompletionQueryService
+import com.example.llmgateway.application.service.DefaultStreamChatCommandService
+import com.example.llmgateway.application.service.DefaultCompleteChatCommandService
 import com.example.llmgateway.application.service.DefaultRoutingCommandService
 import com.example.llmgateway.application.service.DefaultRoutingQueryService
 import com.example.llmgateway.application.service.WeightedRendezvousRoutePlanner
@@ -65,6 +67,7 @@ class GatewayServiceConfiguration {
         @Value("\${gateway.resilience.backoff.multiplier:2.0}") backoffMultiplier: Double,
         @Value("\${gateway.resilience.backoff.max:2s}") maxBackoff: Duration,
         @Value("\${gateway.resilience.per-attempt-timeout:30s}") perAttemptTimeout: Duration,
+        @Value("\${gateway.accounting.completion-window:10s}") completionWindow: Duration,
     ): AttemptPolicy = AttemptPolicy(
         failurePolicy = failurePolicy,
         maxTotalAttempts = maxTotalAttempts,
@@ -74,17 +77,20 @@ class GatewayServiceConfiguration {
         backoffMultiplier = backoffMultiplier,
         maxBackoff = maxBackoff,
         perAttemptTimeout = perAttemptTimeout,
+        completionReserve = completionWindow,
     )
 
     @Bean
     fun gatewayErrorFactory(failurePolicy: FailurePolicy): GatewayErrorFactory = GatewayErrorFactory(failurePolicy)
 
     @Bean
-    fun deadlineOperator(): VirtualThreadDeadlineOperator = VirtualThreadDeadlineOperator()
+    fun deadlineOperator(
+        observationContext: com.example.llmgateway.application.port.out.ObservationContextPort,
+    ): VirtualThreadDeadlineOperator = VirtualThreadDeadlineOperator(observationContext)
 
     @Bean
     fun routePlanner(
-        deploymentRegistry: DeploymentRegistryPort,
+        deploymentRegistry: RoutingSnapshotPort,
         circuitBreaker: CircuitBreakerPort,
     ): RoutePlannerPort = WeightedRendezvousRoutePlanner(deploymentRegistry, circuitBreaker)
 
@@ -118,7 +124,8 @@ class GatewayServiceConfiguration {
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
         costCalculationOperator: CostCalculationOperator,
-        attemptAccounting: AttemptAccountingPort,
+        deploymentAvailability: DeploymentAvailabilityPort,
+        attemptAccounting: AttemptJournalPort,
         outputGuardrailOperator: OutputGuardrailOperator,
     ): CompleteAttemptOperator = DefaultCompleteAttemptOperator(
         providerInvoker = providerInvoker,
@@ -129,6 +136,7 @@ class GatewayServiceConfiguration {
         failurePolicy = failurePolicy,
         attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
+        deploymentAvailability = deploymentAvailability,
         attemptAccounting = attemptAccounting,
         outputGuardrailOperator = outputGuardrailOperator,
     )
@@ -143,7 +151,8 @@ class GatewayServiceConfiguration {
         deadlineOperator: VirtualThreadDeadlineOperator,
         circuitBreaker: CircuitBreakerPort,
         costCalculationOperator: CostCalculationOperator,
-        attemptAccounting: AttemptAccountingPort,
+        deploymentAvailability: DeploymentAvailabilityPort,
+        attemptAccounting: AttemptJournalPort,
         outputGuardrailOperator: OutputGuardrailOperator,
     ): StreamAttemptOperator = DefaultStreamAttemptOperator(
         providerInvoker = providerInvoker,
@@ -154,6 +163,7 @@ class GatewayServiceConfiguration {
         failurePolicy = failurePolicy,
         attemptPolicy = attemptPolicy,
         costCalculationOperator = costCalculationOperator,
+        deploymentAvailability = deploymentAvailability,
         attemptAccounting = attemptAccounting,
         outputGuardrailOperator = outputGuardrailOperator,
     )
@@ -191,22 +201,22 @@ class GatewayServiceConfiguration {
     ): RequestLifecycleOperator = RequestLifecycleOperator(requestObserver, requestAccounting)
 
     @Bean
-    fun chatCompletionQueryIn(
+    fun completeChatCommandIn(
         completeOperation: CompleteChatOperation,
         requestAdmissionOperator: RequestAdmissionOperator,
         requestLifecycleOperator: RequestLifecycleOperator,
-    ): ChatCompletionQueryIn = DefaultChatCompletionQueryService(
+    ): CompleteChatCommandIn = DefaultCompleteChatCommandService(
         completeOperation,
         requestAdmissionOperator,
         requestLifecycleOperator,
     )
 
     @Bean
-    fun chatCompletionCommandIn(
+    fun streamChatCommandIn(
         streamOperation: StreamChatOperation,
         requestAdmissionOperator: RequestAdmissionOperator,
         requestLifecycleOperator: RequestLifecycleOperator,
-    ): ChatCompletionCommandIn = DefaultChatCompletionCommandService(
+    ): StreamChatCommandIn = DefaultStreamChatCommandService(
         streamOperation,
         requestAdmissionOperator,
         requestLifecycleOperator,

@@ -6,16 +6,19 @@ import com.example.llmgateway.application.policy.AttemptPolicy
 import com.example.llmgateway.application.policy.GatewayErrorFactory
 import com.example.llmgateway.application.port.out.RoutePlannerPort
 import com.example.llmgateway.core.primitive.DeploymentId
-import com.example.llmgateway.domain.model.CanonicalChatRequest
-import com.example.llmgateway.domain.model.GatewayEvent
-import com.example.llmgateway.domain.model.GatewayException
-import com.example.llmgateway.domain.model.FailureClass
-import com.example.llmgateway.domain.model.RequestContext
-import com.example.llmgateway.domain.model.RoutingPlan
+import com.example.llmgateway.domain.error.FailureClass
+import com.example.llmgateway.domain.error.GatewayException
+import com.example.llmgateway.domain.execution.AttemptKind
+import com.example.llmgateway.domain.execution.RequestContext
+import com.example.llmgateway.domain.inference.chat.CanonicalChatRequest
+import com.example.llmgateway.domain.inference.chat.GatewayEvent
+import com.example.llmgateway.domain.routing.RoutingPlan
+import com.example.llmgateway.domain.stream.CloseableStream
+import com.example.llmgateway.domain.stream.ManagedStream
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.TimeoutException
 import java.util.UUID
+import java.util.concurrent.TimeoutException
 
 class DefaultStreamChatOperation(
     private val routePlanner: RoutePlannerPort,
@@ -24,12 +27,13 @@ class DefaultStreamChatOperation(
     private val errorFactory: GatewayErrorFactory,
 ) : StreamChatOperation {
 
-    override fun execute(request: CanonicalChatRequest, context: RequestContext): Sequence<GatewayEvent> = sequence {
+    override fun execute(request: CanonicalChatRequest, context: RequestContext): CloseableStream<GatewayEvent> = ManagedStream { scope -> sequence {
         val budget = attemptPolicy.newBudget()
+        var attemptKind = AttemptKind.INITIAL
         val responseId = "chatcmpl_${UUID.randomUUID()}"
         var excluded = emptySet<DeploymentId>()
         var lastFailure: AttemptFailureException? = null
-        var plan = plan(request, context, excluded)
+        val plan = plan(request, context, excluded)
 
         while (budget.attempts < attemptPolicy.maxTotalAttempts) {
             if (remaining(context).isZero || remaining(context).isNegative) {
@@ -43,8 +47,8 @@ class DefaultStreamChatOperation(
 
             while (budget.startAttempt()) {
                 try {
-                    attemptOperator.execute(request, context, deployment, budget.attempts, responseId)
-                        .forEach { event -> yield(event) }
+                    scope.own(attemptOperator.execute(request, context, deployment, budget.attempts, responseId, attemptKind, plan.pricing[deployment.id]))
+                        .use { stream -> stream.forEach { event -> yield(event) } }
                     return@sequence
                 } catch (error: AttemptFailureException) {
                     lastFailure = error
@@ -64,6 +68,7 @@ class DefaultStreamChatOperation(
                     if (delay != null) {
                         attemptPolicy.await(delay)
                         retryIndex += 1
+                        attemptKind = AttemptKind.RETRY
                         continue
                     }
 
@@ -80,7 +85,7 @@ class DefaultStreamChatOperation(
                         throw terminalError(context, error)
                     }
                     excluded = excluded + deployment.id
-                    plan = plan(request, context, excluded)
+                    attemptKind = AttemptKind.FALLBACK
                     fallback = true
                     break
                 }
@@ -91,7 +96,7 @@ class DefaultStreamChatOperation(
 
         throw lastFailure?.let { terminalError(context, it) }
             ?: errorFactory.noDeployment(context)
-    }
+    } }
 
     private fun plan(
         request: CanonicalChatRequest,

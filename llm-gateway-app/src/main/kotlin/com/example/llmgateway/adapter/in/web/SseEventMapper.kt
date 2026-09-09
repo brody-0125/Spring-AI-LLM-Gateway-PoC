@@ -7,12 +7,14 @@ import com.example.llmgateway.contract.ChatMessageDto
 import com.example.llmgateway.contract.ErrorResponseDto
 import com.example.llmgateway.contract.GatewayErrorDto
 import com.example.llmgateway.contract.UsageDto
-import com.example.llmgateway.domain.model.GatewayEvent
+import com.example.llmgateway.domain.inference.chat.GatewayCompleteEvent
+import com.example.llmgateway.domain.inference.chat.GatewayDeltaEvent
+import com.example.llmgateway.domain.inference.chat.GatewayEvent
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 
 internal object SseEventMapper {
     fun toSseEvent(event: GatewayEvent): SseEmitter.SseEventBuilder = when (event) {
-        is GatewayEvent.Delta -> SseEmitter.event()
+        is GatewayDeltaEvent -> SseEmitter.event()
             .data(
                 ChatCompletionChunkDto(
                     id = event.id,
@@ -26,7 +28,7 @@ internal object SseEventMapper {
                     ),
                 ),
             )
-        is GatewayEvent.Complete -> SseEmitter.event()
+        is GatewayCompleteEvent -> SseEmitter.event()
             .data(
                 ChatCompletionChunkDto(
                     id = event.id,
@@ -46,7 +48,7 @@ internal object SseEventMapper {
 
     fun doneEvent(): SseEmitter.SseEventBuilder = SseEmitter.event().data("[DONE]")
 
-    fun errorEvent(error: com.example.llmgateway.domain.model.GatewayException): SseEmitter.SseEventBuilder =
+    fun errorEvent(error: com.example.llmgateway.domain.error.GatewayException): SseEmitter.SseEventBuilder =
         SseEmitter.event().name("error").data(
             ErrorResponseDto(
                 GatewayErrorDto(
